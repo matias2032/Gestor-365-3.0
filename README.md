@@ -24,7 +24,7 @@ Funcionalidades Principais
 - Provider: Gestão de estado e temas.
 - PDF: Geração de ficheiros PDF dinâmicos.
 
- 📂 Estrutura do Projeto
+ Estrutura do Projeto
 
 ```text
 lib/

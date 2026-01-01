@@ -1,0 +1,57 @@
+name: gestao_bar_pos
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.10.1 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Supabase
+  supabase_flutter: ^2.5.0
+  
+  # Conectividade
+  connectivity_plus: ^6.0.0
+  internet_connection_checker: ^1.0.0+1
+
+  flutter_local_notifications: ^17.0.0
+  workmanager: ^0.6.0
+  
+  # CORE
+  cupertino_icons: ^1.0.8
+  file_picker: ^10.3.7
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+
+  # DATABASE / SECURITY
+  sqflite: ^2.3.2
+  path: ^1.8.3
+  path_provider: ^2.1.3
+
+  # UI / REPORTS
+  fl_chart: ^0.66.0
+  pdf: ^3.11.0
+  printing: ^5.11.0
+  open_file: ^3.3.2
+  bcrypt: ^1.1.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+
+# Esta seção deve ficar aqui, fora do bloco 'flutter:'
+dependency_overrides:
+  workmanager: ^0.6.0
+
+flutter:
+  uses-material-design: true

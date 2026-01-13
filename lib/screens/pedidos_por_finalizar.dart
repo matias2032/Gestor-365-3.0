@@ -279,11 +279,18 @@ Future<void> _alterarQuantidade(Pedido pedido, ItemPedido item, int novaQuantida
   // SUBSTITUIR o método completo:
 
 Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
+  final nomeProduto = item.produto?.nome ?? 'Produto #${item.idProduto}';
+  
   final confirmado = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('Remover Item'),
-      content: const Text('Deseja remover este item do pedido? O estoque será restituído.'),
+      content: Text(
+        'Deseja remover "$nomeProduto" do pedido?\n\n'
+        '• Quantidade: ${item.quantidade}\n'
+        '• Subtotal: MZN ${item.subtotal.toStringAsFixed(2)}\n\n'
+        'O estoque será restituído automaticamente.'
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
@@ -303,24 +310,36 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
     setState(() => _processandoItem = true);
     
     try {
+      print('🗑️ Iniciando remoção do item #${item.id}...');
+      
       await _syncService.deleteItemPedido(item.id!);
+      
+      print('✅ Item removido com sucesso');
+      
+      // 🔥 FORÇAR SINCRONIZAÇÃO COMPLETA
       await _syncService.forcarSincronizacaoCompleta();
+      
+      print('✅ Sincronização concluída');
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Item removido! Estoque restituído.'),
+          SnackBar(
+            content: Text('✅ "$nomeProduto" removido! Estoque restituído.'),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 2),
           ),
         );
+        
+        // 🔥 RECARREGAR PEDIDOS
         _refreshPedidos();
       }
     } catch (e) {
+      print('❌ ERRO ao remover item: $e');
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Erro ao remover: $e'),
+            content: Text('❌ Erro ao remover: ${e.toString()}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -334,7 +353,6 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
     }
   }
 }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -862,4 +880,7 @@ Widget _buildImagemProduto(ProdutoImagem? imagem, int idProduto) {
       );
     },
   );
-} }
+} 
+
+
+}

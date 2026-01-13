@@ -2169,6 +2169,7 @@ case 'finalizar_pedido':
       .eq('id_produto', idProduto);
   break;
 
+
   // 🔥 ADICIONAR ESTE CASE no switch de _processOfflineOperation:
 
 case 'create_pedido_completo':
@@ -2226,11 +2227,60 @@ case 'create_pedido_completo':
       where: 'id_pedido = ?',
       whereArgs: [idPedidoLocal],
     );
+
     
     print('✅ Pedido offline #$idPedidoLocal sincronizado como #$idSupabase');
     
   } catch (e) {
     print('❌ Erro ao sincronizar pedido offline: $e');
+    rethrow; // Mantém na fila para próxima tentativa
+  }
+  break;
+
+  case 'delete_item_pedido':
+  try {
+    final idItemPedido = operation.data['id_item_pedido'] as int;
+    final idPedido = operation.data['id_pedido'] as int;
+    final idProduto = operation.data['id_produto'] as int;
+    final quantidade = operation.data['quantidade'] as int;
+    
+    print('🔄 Processando exclusão offline: item #$idItemPedido');
+    
+    // Deletar item no Supabase
+    await _supabase
+        .from('itens_pedido')
+        .delete()
+        .eq('id_item_pedido', idItemPedido);
+    
+    // Restituir estoque
+    await _supabase.rpc('increment_stock', params: {
+      'product_id': idProduto,
+      'quantity': quantidade,
+    });
+    
+    // Recalcular total
+    final db = await _localDb.database;
+    final pedidoAtualizado = await db.query(
+      'pedido',
+      columns: ['total'],
+      where: 'id_pedido = ?',
+      whereArgs: [idPedido],
+    );
+    
+    if (pedidoAtualizado.isNotEmpty) {
+      final totalAtualizado = pedidoAtualizado.first['total'] as double;
+      
+      await _supabase.from('pedidos').update({
+        'total': totalAtualizado,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'device_id': _deviceId,
+      }).eq('id_pedido', idPedido);
+    }
+    
+    print('✅ Exclusão offline processada com sucesso');
+    
+  } catch (e) {
+    print('❌ Erro ao processar exclusão offline: $e');
     rethrow; // Mantém na fila para próxima tentativa
   }
   break;
@@ -2437,39 +2487,47 @@ Future<int> toggleAtivoUsuario(int id, bool isActive) async {
 Future<void> deleteItemPedido(int idItemPedido) async {
   final db = await _localDb.database;
   
+  // 🔥 CRÍTICO: Buscar dados do item ANTES de qualquer operação
+  final itemMaps = await db.query(
+    'item_pedido',
+    where: 'id_item_pedido = ?',
+    whereArgs: [idItemPedido],
+  );
+  
+  if (itemMaps.isEmpty) {
+    throw Exception('Item não encontrado');
+  }
+  
+  final item = ItemPedido.fromMap(itemMaps.first);
+  final idPedido = item.idPedido;
+  final idProduto = item.idProduto;
+  final quantidade = item.quantidade;
+  
+  print('🗑️ Removendo item #$idItemPedido: Produto $idProduto (${quantidade}x)');
+  
+  // 🔥 EXECUTAR TUDO DENTRO DE UMA TRANSAÇÃO LOCAL
   await db.transaction((txn) async {
-    // 1. Buscar item antes de deletar
-    final itemMaps = await txn.query(
-      'item_pedido',
-      where: 'id_item_pedido = ?',
-      whereArgs: [idItemPedido],
-    );
-    
-    if (itemMaps.isEmpty) {
-      throw Exception('Item não encontrado');
-    }
-    
-    final item = ItemPedido.fromMap(itemMaps.first);
-    
-    // 2. 🔥 RESTITUIR ESTOQUE (crítico!)
+    // 1. RESTITUIR ESTOQUE LOCAL
     await txn.rawUpdate(
       'UPDATE produto SET quantidade_estoque = quantidade_estoque + ? WHERE id_produto = ?',
-      [item.quantidade, item.idProduto],
+      [quantidade, idProduto],
     );
     
-    print('📦 Estoque restituído: produto ${item.idProduto} (+${item.quantidade})');
+    print('📦 Estoque local restituído: produto $idProduto (+$quantidade)');
     
-    // 3. Deletar item
+    // 2. DELETAR ITEM
     await txn.delete(
       'item_pedido',
       where: 'id_item_pedido = ?',
       whereArgs: [idItemPedido],
     );
     
-    // 4. 🔥 RECALCULAR TOTAL DO PEDIDO (crítico!)
+    print('✅ Item #$idItemPedido deletado localmente');
+    
+    // 3. RECALCULAR TOTAL DO PEDIDO
     final totalResult = await txn.rawQuery(
       'SELECT SUM(subtotal) as total FROM item_pedido WHERE id_pedido = ?',
-      [item.idPedido],
+      [idPedido],
     );
     
     final total = (totalResult.first['total'] as num?)?.toDouble() ?? 0.0;
@@ -2478,15 +2536,15 @@ Future<void> deleteItemPedido(int idItemPedido) async {
       'pedido',
       {'total': total},
       where: 'id_pedido = ?',
-      whereArgs: [item.idPedido],
+      whereArgs: [idPedido],
     );
     
-    print('💰 Total recalculado: MZN ${total.toStringAsFixed(2)}');
+    print('💰 Total do pedido recalculado: MZN ${total.toStringAsFixed(2)}');
     
-    // 5. Se não restarem itens, deletar o pedido
+    // 4. SE NÃO RESTAREM ITENS, DELETAR O PEDIDO
     final countResult = await txn.rawQuery(
       'SELECT COUNT(*) as count FROM item_pedido WHERE id_pedido = ?',
-      [item.idPedido],
+      [idPedido],
     );
     
     final count = countResult.first['count'] as int;
@@ -2494,65 +2552,109 @@ Future<void> deleteItemPedido(int idItemPedido) async {
       await txn.delete(
         'pedido',
         where: 'id_pedido = ?',
-        whereArgs: [item.idPedido],
+        whereArgs: [idPedido],
       );
-      print('🗑️ Pedido ${item.idPedido} deletado (sem itens restantes)');
+      print('🗑️ Pedido $idPedido deletado (sem itens restantes)');
     }
-  });
-
-  // 6. 🔥 SINCRONIZAR COM SUPABASE
+  }); // 🔥 FIM DA TRANSAÇÃO LOCAL
+  
+  // 🔥 SINCRONIZAR COM SUPABASE (FORA DA TRANSAÇÃO)
   if (_isOnline) {
     try {
-      // Buscar item novamente para obter dados atualizados
-      final itemMaps = await db.query(
-        'item_pedido',
-        where: 'id_item_pedido = ?',
-        whereArgs: [idItemPedido],
+      print('🌐 Iniciando sincronização com Supabase...');
+      
+      // 1. Deletar item no Supabase
+      await _supabase
+          .from('itens_pedido')
+          .delete()
+          .eq('id_item_pedido', idItemPedido);
+      
+      print('✅ Item #$idItemPedido deletado no Supabase');
+      
+      // 2. Restituir estoque no Supabase
+      await _supabase.rpc('increment_stock', params: {
+        'product_id': idProduto,
+        'quantity': quantidade,
+      });
+      
+      print('✅ Estoque restituído no Supabase: produto $idProduto (+$quantidade)');
+      
+      // 3. Buscar total atualizado e sincronizar
+      final pedidoAtualizado = await db.query(
+        'pedido',
+        columns: ['total'],
+        where: 'id_pedido = ?',
+        whereArgs: [idPedido],
       );
       
-      if (itemMaps.isNotEmpty) {
-        final item = ItemPedido.fromMap(itemMaps.first);
+      if (pedidoAtualizado.isNotEmpty) {
+        final totalAtualizado = pedidoAtualizado.first['total'] as double;
         
-        // Deletar item no Supabase
-        await _supabase
-            .from('itens_pedido')
-            .delete()
-            .eq('id_item_pedido', idItemPedido);
+        await _supabase.from('pedidos').update({
+          'total': totalAtualizado,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+          'device_id': _deviceId,
+        }).eq('id_pedido', idPedido);
         
-        // Restituir estoque no Supabase
-        await _supabase.rpc('increment_stock', params: {
-          'product_id': item.idProduto,
-          'quantity': item.quantidade,
-        });
-        
-        // Atualizar total do pedido no Supabase
-        final pedidoAtualizado = await db.query(
-          'pedido',
-          columns: ['total'],
-          where: 'id_pedido = ?',
-          whereArgs: [item.idPedido],
-        );
-        
-        if (pedidoAtualizado.isNotEmpty) {
-          final totalAtualizado = pedidoAtualizado.first['total'] as double;
-          
-          await _supabase.from('pedidos').update({
-            'total': totalAtualizado,
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-            'device_id': _deviceId,
-          }).eq('id_pedido', item.idPedido);
-        }
-        
-        print('✅ Item deletado e sincronizado com Supabase');
+        print('✅ Total do pedido sincronizado: MZN ${totalAtualizado.toStringAsFixed(2)}');
       }
+      
+      // 4. Se o pedido foi deletado localmente, deletar no Supabase
+      final pedidoExiste = await db.query(
+        'pedido',
+        where: 'id_pedido = ?',
+        whereArgs: [idPedido],
+      );
+      
+      if (pedidoExiste.isEmpty) {
+        await _supabase
+            .from('pedidos')
+            .delete()
+            .eq('id_pedido', idPedido);
+        
+        print('✅ Pedido $idPedido deletado no Supabase (sem itens)');
+      }
+      
+      print('✅ Sincronização completa com Supabase concluída!');
+      
     } catch (e) {
-      print('⚠️ Erro ao sincronizar exclusão: $e');
+      print('⚠️ Erro ao sincronizar com Supabase: $e');
+      
+      // 🔥 ADICIONAR À FILA OFFLINE
+      _addToOfflineQueue(OfflineOperation(
+        type: 'delete_item_pedido',
+        data: {
+          'id_item_pedido': idItemPedido,
+          'id_pedido': idPedido,
+          'id_produto': idProduto,
+          'quantidade': quantidade,
+        },
+        timestamp: DateTime.now(),
+      ));
+      
+      print('📝 Operação adicionada à fila offline');
     }
+  } else {
+    // 🔥 MODO OFFLINE: Adicionar à fila
+    print('📵 Modo offline - adicionando à fila de sincronização');
+    
+    _addToOfflineQueue(OfflineOperation(
+      type: 'delete_item_pedido',
+      data: {
+        'id_item_pedido': idItemPedido,
+        'id_pedido': idPedido,
+        'id_produto': idProduto,
+        'quantidade': quantidade,
+      },
+      timestamp: DateTime.now(),
+    ));
   }
   
+  // 🔥 NOTIFICAR MUDANÇAS
   notificarMudancaEstoque();
+  
+  print('✅ deleteItemPedido concluído!');
 }
-
   Future<int?> getIdCategoriaPromocao() async {
     return await _localDb.getIdCategoriaPromocao();
   }

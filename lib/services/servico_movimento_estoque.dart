@@ -1,6 +1,5 @@
 // lib/services/servico_movimento_estoque.dart
 import 'dart:async';
-import 'package:sqflite/sqflite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'; //
 import '../models/movimento_estoque.dart';
@@ -47,7 +46,7 @@ class ServicoMovimentoEstoque {
       quantidadeAnterior: quantidadeAnterior,
       quantidadeNova: quantidadeNova,
       motivo: motivo,
-      dataMovimento: DateTime.now().toIso8601String(),
+      dataMovimento: DateTime.now().toUtc().toIso8601String(),
     );
 
     // Preparar mapa e inserir device_id
@@ -126,7 +125,7 @@ class ServicoMovimentoEstoque {
           quantidadeAnterior: quantidadeAnterior,
           quantidadeNova: novaQuantidade,
           motivo: motivo,
-          dataMovimento: DateTime.now().toIso8601String(),
+          dataMovimento: DateTime.now().toUtc().toIso8601String(),
           nomeProduto: produtoMaps.first['nome_produto'] as String,
         );
 

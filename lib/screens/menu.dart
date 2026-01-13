@@ -1,7 +1,7 @@
+
 // lib/screens/menu.dart (COM CONTADOR SINCRONIZADO)
 
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'dart:async';
 import '../models/produto.dart';
 import '../models/categoria.dart';
@@ -11,10 +11,11 @@ import '../services/pedido_contador_service.dart'; // 🔥 NOVO IMPORT
 import '../models/produto_imagem.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
-import '../services/servico_logs.dart';
 import '../services/supabase_sync_service.dart';
 import '../services/sessao_service.dart';
 import '../widgets/estoque_alerta_popup.dart';
+import '../widgets/cached_produto_image.dart';
+
 
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
@@ -116,39 +117,44 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
   }
 }
 
-  Future<List<Produto>> _fetchProdutos() async {
-    try {
-      final produtos = await _dbService.readAllProdutosWithAssoc();
+ Future<List<Produto>> _fetchProdutos() async {
+  try {
+    final produtos = await _dbService.readAllProdutosWithAssoc();
+    
+    return produtos.where((p) {
+      // 🔥 NOVO: Filtrar apenas produtos ativos
+      if (p.ativo != 1) {
+        return false;
+      }
       
-      return produtos.where((p) {
-        if (_buscaNome.isNotEmpty && 
-            !p.nome.toLowerCase().contains(_buscaNome.toLowerCase())) {
-          return false;
-        }
+      if (_buscaNome.isNotEmpty && 
+          !p.nome.toLowerCase().contains(_buscaNome.toLowerCase())) {
+        return false;
+      }
+      
+      if (_precoMin != null && p.preco < _precoMin!) {
+        return false;
+      }
+      
+      if (_precoMax != null && p.preco > _precoMax!) {
+        return false;
+      }
+      
+      if (_categoriaSelecionada != null) {
+        final temCategoria = p.categoriasAssociadas?.any(
+          (c) => c.id == _categoriaSelecionada
+        ) ?? false;
         
-        if (_precoMin != null && p.preco < _precoMin!) {
-          return false;
-        }
-        
-        if (_precoMax != null && p.preco > _precoMax!) {
-          return false;
-        }
-        
-        if (_categoriaSelecionada != null) {
-          final temCategoria = p.categoriasAssociadas?.any(
-            (c) => c.id == _categoriaSelecionada
-          ) ?? false;
-          
-          if (!temCategoria) return false;
-        }
-        
-        return true;
-      }).toList();
-    } catch (e) {
-      print('Erro ao buscar produtos: $e');
-      return [];
-    }
+        if (!temCategoria) return false;
+      }
+      
+      return true;
+    }).toList();
+  } catch (e) {
+    print('Erro ao buscar produtos: $e');
+    return [];
   }
+}
 
   Future<void> _fetchCategorias() async {
     try {
@@ -257,99 +263,101 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
     return '$estoque unidades';
   }
 
-  Widget _buildProdutoCard(Produto produto, int index) {
-    final imagemPrincipal = produto.imagens?.firstWhere(
-      (img) => img.isPrincipal,
-      orElse: () => ProdutoImagem(
-        idProduto: produto.id!,
-        caminho: '',
-        isPrincipal: false,
+ Widget _buildProdutoCard(Produto produto, int index) {
+  final imagemPrincipal = produto.imagens?.firstWhere(
+    (img) => img.isPrincipal,
+    orElse: () => ProdutoImagem(
+      idProduto: produto.id!,
+      caminho: '',
+      isPrincipal: false,
+    ),
+  );
+
+  final caminhoImagem = imagemPrincipal?.caminho ?? '';
+  final estoque = produto.quantidadeEstoque ?? 0;
+  final temPromocao = produto.precoPromocional != null && 
+      produto.categoriasAssociadas?.any((c) => c.nome == 'Promoções da Semana') == true;
+
+  return FadeTransition(
+    opacity: CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOut,
+    ),
+    child: Card(
+      elevation: 8,
+      shadowColor: Colors.black.withOpacity(0.15),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
       ),
-    );
-
-    final caminhoImagem = imagemPrincipal?.caminho ?? '';
-    final estoque = produto.quantidadeEstoque ?? 0;
-final temPromocao = produto.precoPromocional != null && 
-    produto.categoriasAssociadas?.any((c) => c.nome == 'Promoções da Semana') == true;
-
-
-
-    return FadeTransition(
-      opacity: CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeOut,
-      ),
-      child: Card(
-        elevation: 8,
-        shadowColor: Colors.black.withOpacity(0.15),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: () async {
-            await Navigator.of(context).pushNamed(
-              '/detalhes_produto',
-              arguments: produto.id,
-            );
-            setState(() {
-              _produtosFuture = _fetchProdutos();
-            });
-            _atualizarContadorPedidos();
-          },
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(18),
-                ),
-                child: Stack(
-                  children: [
-                    SizedBox(
-                      height: 120,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () async {
+          await Navigator.of(context).pushNamed(
+            '/detalhes_produto',
+            arguments: produto.id,
+          );
+          setState(() {
+            _produtosFuture = _fetchProdutos();
+          });
+          _atualizarContadorPedidos();
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(18),
+              ),
+              child: Stack(
+                children: [
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: CachedProdutoImage( // 🔥 WIDGET NOVO
+                      imagePath: caminhoImagem,
                       width: double.infinity,
-                      child: caminhoImagem.isNotEmpty
-                          ? Image.file(
-                              File(caminhoImagem),
-                              fit: BoxFit.cover,
-                            )
-                          : Container(
-                              color: Colors.grey.shade200,
-                              child: Icon(
-                                Icons.image_not_supported,
-                                size: 48,
-                                color: Colors.grey.shade400,
-                              ),
-                            ),
+                      fit: BoxFit.cover,
+                      placeholder: Container(
+                        color: Colors.grey.shade200,
+                        child: const Center(
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                      errorWidget: Container(
+                        color: Colors.grey.shade200,
+                        child: Icon(
+                          Icons.image_not_supported,
+                          size: 48,
+                          color: Colors.grey.shade400,
+                        ),
+                      ),
                     ),
-                    if (temPromocao)
-                      Positioned(
-                        top: 8,
-                        left: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Text(
-                            'PROMO',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
+                  ),
+                  if (temPromocao)
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'PROMO',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
-              Padding(
+            ), Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

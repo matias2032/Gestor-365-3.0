@@ -1,12 +1,9 @@
-// lib/screens/dashboard_vendas.dart
-
+// lib/screens/dashboard.dart
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
-import '../services/supabase_sync_service.dart';
 import '../widgets/app_sidebar.dart';
 import '../services/base_de_dados.dart';
-import '../services/estoque_alerta_service.dart';
 import '../widgets/estoque_alerta_popup.dart';
 
 
@@ -20,7 +17,7 @@ class DashboardVendasScreen extends StatefulWidget {
 enum PeriodoFiltro { hoje, semana, mes, tresMeses, seisMeses, ano }
 
 class _DashboardVendasScreenState extends State<DashboardVendasScreen> {
-  final SupabaseSyncService _syncService = SupabaseSyncService.instance;
+
   PeriodoFiltro _filtroAtual = PeriodoFiltro.semana;
   bool _isLoading = true;
 
@@ -136,7 +133,6 @@ Future<void> _carregarDados() async {
     }
   }
 
-    @override
 Widget build(BuildContext context) {
   return Stack(
     children: [
@@ -176,10 +172,11 @@ Widget build(BuildContext context) {
                 ),
               ),
       ),
-      const EstoqueAlertaPopup(), 
+      const EstoqueAlertaPopup(), // ✅ JÁ EXISTE
     ],
   );
 }
+
   
 
   Widget _buildFiltroDropdown() {

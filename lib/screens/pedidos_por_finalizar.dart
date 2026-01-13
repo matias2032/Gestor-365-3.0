@@ -378,347 +378,443 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
   }
 
   Widget _buildPedidoCard(Pedido pedido) {
-    final totalItens = pedido.itens?.length ?? 0;
-    final isAtivo = _pedidoAtivoService.pedidoAtivoId == pedido.id;
-    final isExpandido = _pedidoExpandidoId == pedido.id;
+  final totalItens = pedido.itens?.length ?? 0;
+  final isAtivo = _pedidoAtivoService.pedidoAtivoId == pedido.id;
+  final isExpandido = _pedidoExpandidoId == pedido.id;
 
-    return Card(
-      elevation: isAtivo ? 8 : 4,
-      margin: const EdgeInsets.only(bottom: 16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: isAtivo 
-          ? const BorderSide(color: Colors.teal, width: 2)
-          : BorderSide.none,
-      ),
-      child: Column(
-        children: [
-          // CABEÇALHO DO PEDIDO
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          'Pedido #${pedido.id}',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        if (isAtivo) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.teal,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'ATIVO',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade100,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        pedido.statusPedido.toUpperCase(),
-                        style: TextStyle(
-                          color: Colors.orange.shade900,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                      DateTime.parse(pedido.dataPedido)
-                          .toLocal()
-                          .toString()
-                          .substring(0, 16),
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-
-                Row(
-                  children: [
-                    const Icon(Icons.shopping_bag, size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$totalItens ${totalItens == 1 ? "item" : "itens"}',
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  return Card(
+    elevation: isAtivo ? 8 : 4,
+    margin: const EdgeInsets.only(bottom: 16),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: isAtivo 
+        ? const BorderSide(color: Colors.teal, width: 2)
+        : BorderSide.none,
+    ),
+    child: Column(
+      children: [
+        // CABEÇALHO DO PEDIDO (mantido igual)
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
                     children: [
-                      const Text(
-                        'Total:',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
                       Text(
-                        'MZN ${pedido.total.toStringAsFixed(2)}',
+                        'Pedido #${pedido.id}',
                         style: const TextStyle(
-                          fontSize: 22,
+                          fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Colors.teal,
                         ),
                       ),
+                      if (isAtivo) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.teal,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            'ATIVO',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-
-                // BOTÕES DE AÇÃO
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _cancelando ? null : () => _selecionarPedidoAtivo(pedido), // 🔥 BLOQUEIO
-                        icon: Icon(isAtivo ? Icons.toggle_on : Icons.toggle_off),
-                        label: Text(isAtivo ? 'Desativar' : 'Ativar'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: isAtivo ? Colors.orange : Colors.blue,
-                          foregroundColor: Colors.white,
-                        ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade100,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      pedido.statusPedido.toUpperCase(),
+                      style: TextStyle(
+                        color: Colors.orange.shade900,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _cancelando ? null : () { // 🔥 BLOQUEIO
-                          setState(() {
-                            _pedidoExpandidoId = isExpandido ? null : pedido.id;
-                          });
-                        },
-                        icon: Icon(isExpandido ? Icons.expand_less : Icons.expand_more),
-                        label: Text(isExpandido ? 'Ocultar' : 'Ver Itens'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.orange,
-                        ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    DateTime.parse(pedido.dataPedido)
+                        .toLocal()
+                        .toString()
+                        .substring(0, 16),
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              Row(
+                children: [
+                  const Icon(Icons.shopping_bag, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$totalItens ${totalItens == 1 ? "item" : "itens"}',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Total:',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'MZN ${pedido.total.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.teal,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _cancelando ? null : () => _finalizarPedido(pedido), // 🔥 BLOQUEIO
-                        icon: const Icon(Icons.check_circle),
-                        label: const Text('Finalizar'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                        ),
+              ),
+              const SizedBox(height: 16),
+
+              // BOTÕES DE AÇÃO
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _cancelando ? null : () => _selecionarPedidoAtivo(pedido),
+                      icon: Icon(isAtivo ? Icons.toggle_on : Icons.toggle_off),
+                      label: Text(isAtivo ? 'Desativar' : 'Ativar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isAtivo ? Colors.orange : Colors.blue,
+                        foregroundColor: Colors.white,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _cancelando ? null : () => _confirmarCancelamento(pedido), // 🔥 BLOQUEIO
-                        icon: _cancelando 
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.cancel),
-                        label: Text(_cancelando ? 'Cancelando...' : 'Cancelar'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                        ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _cancelando ? null : () {
+                        setState(() {
+                          _pedidoExpandidoId = isExpandido ? null : pedido.id;
+                        });
+                      },
+                      icon: Icon(isExpandido ? Icons.expand_less : Icons.expand_more),
+                      label: Text(isExpandido ? 'Ocultar' : 'Ver Itens'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.orange,
                       ),
                     ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // LISTA DE ITENS (EXPANDÍVEL)
-          if (isExpandido && pedido.itens != null && pedido.itens!.isNotEmpty)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                border: Border(
-                  top: BorderSide(color: Colors.grey.shade300),
-                ),
+                  ),
+                ],
               ),
-              child: Column(
-                children: pedido.itens!.map((item) {
-                  return _buildItemPedido(pedido, item);
-                }).toList(),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildItemPedido(Pedido pedido, ItemPedido item) {
-    final produto = item.produto;
-    final imagem = produto?.imagens?.firstWhere(
-      (img) => img.isPrincipal,
-      orElse: () => ProdutoImagem(
-        idProduto: produto.id!,
-        caminho: '',
-        isPrincipal: false,
-      ),
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade200),
-        ),
-      ),
-      child: Row(
-        children: [
-          // Imagem
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: imagem != null && imagem.caminho.isNotEmpty
-                ? Image.file(
-                    File(imagem.caminho),
-                    width: 60,
-                    height: 60,
-                    fit: BoxFit.cover,
-                  )
-                : Container(
-                    width: 60,
-                    height: 60,
-                    color: Colors.grey.shade300,
-                    child: const Icon(
-                      Icons.image_not_supported,
-                      color: Colors.grey,
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _cancelando ? null : () => _finalizarPedido(pedido),
+                      icon: const Icon(Icons.check_circle),
+                      label: const Text('Finalizar'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
                   ),
-          ),
-          const SizedBox(width: 12),
-
-          // Info do Produto
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  produto?.nome ?? 'Produto',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'MZN ${item.precoUnitario.toStringAsFixed(2)}',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Total: MZN ${item.subtotal.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.teal,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Controles de Quantidade
-          Column(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.add_circle, size: 20, color: Colors.green),
-                onPressed: () => _alterarQuantidade(pedido, item, item.quantidade + 1),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              InkWell(
-                onTap: () => _editarQuantidadeManual(pedido, item),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.teal),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '${item.quantidade}',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _cancelando ? null : () => _confirmarCancelamento(pedido),
+                      icon: _cancelando 
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.cancel),
+                      label: Text(_cancelando ? 'Cancelando...' : 'Cancelar'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
                     ),
                   ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.remove_circle, size: 20, color: Colors.orange),
-                onPressed: () => _alterarQuantidade(pedido, item, item.quantidade - 1),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
+                ],
               ),
             ],
           ),
+        ),
 
-          // Botão Remover
-          IconButton(
-            icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-            onPressed: () => _removerItem(pedido, item),
+        // 🔥 CORREÇÃO CRÍTICA: Renderizar itens com FutureBuilder
+        if (isExpandido)
+          FutureBuilder<Pedido?>(
+            future: _syncService.readPedidoComDetalhes(pedido.id!), // 🔥 RECARREGAR DADOS
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return Container(
+                  padding: const EdgeInsets.all(24),
+                  child: const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+
+              if (snapshot.hasError || snapshot.data == null) {
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  child: const Text(
+                    'Erro ao carregar itens',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                );
+              }
+
+              final pedidoCompleto = snapshot.data!;
+              final itens = pedidoCompleto.itens ?? [];
+
+              if (itens.isEmpty) {
+                return Container(
+                  padding: const EdgeInsets.all(24),
+                  child: const Center(
+                    child: Text(
+                      'Nenhum item neste pedido',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                );
+              }
+
+              return Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  border: Border(
+                    top: BorderSide(color: Colors.grey.shade300),
+                  ),
+                ),
+                child: Column(
+                  children: itens.map((item) {
+                    return _buildItemPedido(pedidoCompleto, item);
+                  }).toList(),
+                ),
+              );
+            },
           ),
-        ],
+      ],
+    ),
+  );
+}
+
+ Widget _buildItemPedido(Pedido pedido, ItemPedido item) {
+  final produto = item.produto;
+  
+  // 🔥 GARANTIR que sempre haverá um nome (nunca será null)
+  final nomeProduto = produto?.nome ?? 'Produto #${item.idProduto}';
+  
+  // 🔥 BUSCAR IMAGEM PRINCIPAL (com fallback seguro)
+  ProdutoImagem? imagem;
+  if (produto?.imagens != null && produto!.imagens!.isNotEmpty) {
+    try {
+      imagem = produto.imagens!.firstWhere(
+        (img) => img.isPrincipal,
+        orElse: () => produto.imagens!.first, // Se não houver principal, usa a primeira
+      );
+    } catch (e) {
+      imagem = null; // Sem imagem disponível
+    }
+  }
+
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      border: Border(
+        bottom: BorderSide(color: Colors.grey.shade200),
+      ),
+    ),
+    child: Row(
+      children: [
+        // 🔥 IMAGEM DO PRODUTO (com validação completa)
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: _buildImagemProduto(imagem, item.idProduto),
+        ),
+        const SizedBox(width: 12),
+
+        // Info do Produto
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 🔥 NOME REAL DO PRODUTO
+              Text(
+                nomeProduto,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'MZN ${item.precoUnitario.toStringAsFixed(2)}',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Total: MZN ${item.subtotal.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.teal,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Controles de Quantidade
+        Column(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.add_circle, size: 20, color: Colors.green),
+              onPressed: () => _alterarQuantidade(pedido, item, item.quantidade + 1),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+            InkWell(
+              onTap: () => _editarQuantidadeManual(pedido, item),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.teal),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${item.quantidade}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.remove_circle, size: 20, color: Colors.orange),
+              onPressed: () => _alterarQuantidade(pedido, item, item.quantidade - 1),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          ],
+        ),
+
+        // Botão Remover
+        IconButton(
+          icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+          onPressed: () => _removerItem(pedido, item),
+        ),
+      ],
+    ),
+  );
+}
+
+// 🔥 MÉTODO AUXILIAR para renderizar imagem do produto
+Widget _buildImagemProduto(ProdutoImagem? imagem, int idProduto) {
+  const double tamanho = 60.0;
+  
+  // Caso 1: Sem imagem disponível
+  if (imagem == null || imagem.caminho.isEmpty) {
+    return Container(
+      width: tamanho,
+      height: tamanho,
+      color: Colors.grey.shade300,
+      child: const Icon(
+        Icons.image_not_supported,
+        color: Colors.grey,
+        size: 30,
       ),
     );
   }
-}
+
+  // Caso 2: URL do Supabase (imagem online)
+  if (imagem.caminho.startsWith('http')) {
+    return Image.network(
+      imagem.caminho,
+      width: tamanho,
+      height: tamanho,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          width: tamanho,
+          height: tamanho,
+          color: Colors.red.shade100,
+          child: const Icon(Icons.broken_image, color: Colors.red, size: 30),
+        );
+      },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          width: tamanho,
+          height: tamanho,
+          color: Colors.grey.shade200,
+          child: const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      },
+    );
+  }
+
+  // Caso 3: Caminho local (arquivo no dispositivo)
+  return Image.file(
+    File(imagem.caminho),
+    width: tamanho,
+    height: tamanho,
+    fit: BoxFit.cover,
+    errorBuilder: (context, error, stackTrace) {
+      return Container(
+        width: tamanho,
+        height: tamanho,
+        color: Colors.orange.shade100,
+        child: const Icon(Icons.image_not_supported, color: Colors.orange, size: 30),
+      );
+    },
+  );
+} }

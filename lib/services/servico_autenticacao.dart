@@ -2,7 +2,6 @@
 
 import 'package:bcrypt/bcrypt.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:sqflite/sqflite.dart';
 import '../models/resultado_autenticacao.dart';
 import '../models/usuario.dart';
 import 'base_de_dados.dart';

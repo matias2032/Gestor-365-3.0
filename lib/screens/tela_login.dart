@@ -30,69 +30,70 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
+  
+Future<void> _handleLogin() async {
+  setState(() {
+    _isLoading = true;
+    _errorMessage = '';
+  });
+
+  final credencial = _credencialController.text.trim();
+  final password = _passwordController.text;
+
+  if (credencial.isEmpty || password.isEmpty) {
     setState(() {
-      _isLoading = true;
-      _errorMessage = '';
+      _errorMessage = 'Por favor, preencha todos os campos.';
+      _isLoading = false;
     });
+    return;
+  }
 
-    final credencial = _credencialController.text.trim();
-    final password = _passwordController.text;
+  try {
+    final result = await _authService.login(credencial, password);
 
-    if (credencial.isEmpty || password.isEmpty) {
-      setState(() {
-        _errorMessage = 'Por favor, preencha todos os campos.';
-        _isLoading = false;
-      });
+    // 🔥 CASO 1: Primeira senha - redireciona para troca obrigatória
+    if (result.status == StatusAutenticacao.primeiraSenha && result.usuario != null) {
+      // ✅ CORREÇÃO: Adicionar await
+      await SessaoService.instance.setUsuario(result.usuario!);
+      
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/primeira_troca_senha');
+      }
       return;
     }
 
-    try {
-      final result = await _authService.login(credencial, password);
-
-      // 🔥 CASO 1: Primeira senha - redireciona para troca obrigatória
-      if (result.status == StatusAutenticacao.primeiraSenha && result.usuario != null) {
-        // Define o usuário na sessão
-        SessaoService.instance.setUsuario(result.usuario!);
-        
-        if (mounted) {
-          // Redireciona para tela de troca de senha
-          Navigator.of(context).pushReplacementNamed('/primeira_troca_senha');
-        }
-        return;
+    // 🔥 CASO 2: Login bem-sucedido
+    if (result.status == StatusAutenticacao.sucesso && result.usuario != null) {
+      // ✅ CORREÇÃO: Adicionar await
+      await SessaoService.instance.setUsuario(result.usuario!);
+      
+      // Carrega contador de pedidos
+      await PedidoContadorService.instance.carregarContador(result.usuario!.id!);
+      
+      // Registra log de login
+      await ServicoLogs.instance.registrarLogin(
+        result.usuario!.id!,
+        '${result.usuario!.nome} ${result.usuario!.apelido}',
+      );
+      
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/dashboard');
       }
-
-      // 🔥 CASO 2: Login bem-sucedido
-      if (result.status == StatusAutenticacao.sucesso && result.usuario != null) {
-        SessaoService.instance.setUsuario(result.usuario!);
-        
-        // Carrega contador de pedidos
-        await PedidoContadorService.instance.carregarContador(result.usuario!.id!);
-        
-        // Registra log de login
-        await ServicoLogs.instance.registrarLogin(
-          result.usuario!.id!,
-          '${result.usuario!.nome} ${result.usuario!.apelido}',
-        );
-        
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/dashboard');
-        }
-      } 
-      // 🔥 CASO 3: Falha ou erro
-      else {
-        setState(() {
-          _errorMessage = result.mensagem ?? 'Erro desconhecido.';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
+    } 
+    // 🔥 CASO 3: Falha ou erro
+    else {
       setState(() {
-        _errorMessage = 'Erro ao conectar: $e';
+        _errorMessage = result.mensagem ?? 'Erro desconhecido.';
         _isLoading = false;
       });
     }
+  } catch (e) {
+    setState(() {
+      _errorMessage = 'Erro ao conectar: $e';
+      _isLoading = false;
+    });
   }
+}
 
   @override
   Widget build(BuildContext context) {

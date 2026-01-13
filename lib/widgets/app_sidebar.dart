@@ -6,7 +6,7 @@ import '../services/sessao_service.dart';
 import '../services/pedido_contador_service.dart';
 import '../widgets/theme_toggle_widget.dart';
 import '../services/servico_logs.dart';
-import '../services/estoque_alerta_service.dart'; 
+import '../widgets/estoque_badge.dart';
 
 class AppSidebar extends StatefulWidget {
   final String currentRoute;
@@ -157,70 +157,11 @@ Future<void> _carregarContadorDoUsuario() async {
                 
                 
 if (_temPermissao('/gerenciar_produtos'))
-  ListenableBuilder(
-    listenable: EstoqueAlertaService.instance,
-    builder: (context, _) {
-      final alertaService = EstoqueAlertaService.instance;
-      final isSelected = widget.currentRoute == '/gerenciar_produtos';
-      
-      return ListTile(
-        leading: Icon(
-          Icons.fastfood,
-          color: isSelected ? Colors.deepOrange : Colors.grey[700],
-        ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Gerenciar Produtos',
-                style: TextStyle(
-                  color: isSelected ? Colors.deepOrange : Colors.black87,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-            ),
-            if (alertaService.temAlertas)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: alertaService.corAlerta,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.warning_amber,
-                      size: 14,
-                      color: Colors.white,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${alertaService.totalAlertas}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-        selected: isSelected,
-        selectedTileColor: Colors.deepOrange.withOpacity(0.1),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        onTap: () {
-          Navigator.pop(context);
-          if (!isSelected) {
-            Navigator.pushReplacementNamed(context, '/gerenciar_produtos');
-          }
-        },
-      );
-    },
+  _buildMenuItem(
+    icon: Icons.fastfood,
+    title: 'Gerenciar Produtos',
+    route: '/gerenciar_produtos',
+    usarBadge: true, // 🔥 NOVO PARÂMETRO
   ),
                 
                 // 🔥 CONTROLE DE ACESSO: Gerenciar Usuários (Gerente e Admin)
@@ -254,6 +195,13 @@ if (_temPermissao('/gerenciar_produtos'))
                     title: 'Movimentos de Estoque',
                     route: '/movimentos_estoque',
                   ),
+
+                  //   if (_temPermissao('/corrigir_imagens'))
+                  // _buildMenuItem(
+                  //   icon: Icons.list_alt,
+                  //   title: 'Corrigir Imagens',
+                  //   route: '/corrigir_imagens',
+                  // ),
               ],
             ),
           ),
@@ -328,37 +276,46 @@ if (_temPermissao('/gerenciar_produtos'))
   }
 
   Widget _buildMenuItem({
-    required IconData icon,
-    required String title,
-    required String route,
-  }) {
-    final isSelected = widget.currentRoute == route;
-    
-    return ListTile(
-      leading: Icon(
-        icon,
-        color: isSelected ? Colors.deepOrange : Colors.grey[700],
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: isSelected ? Colors.deepOrange : Colors.black87,
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-      selected: isSelected,
-      selectedTileColor: Colors.deepOrange.withOpacity(0.1),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-      ),
-      onTap: () {
-        Navigator.pop(context);
-        if (!isSelected) {
-          Navigator.pushReplacementNamed(context, route);
-        }
-      },
-    );
+  required IconData icon,
+  required String title,
+  required String route,
+  bool usarBadge = false, // 🔥 NOVO PARÂMETRO
+}) {
+  final isSelected = widget.currentRoute == route;
+  
+  Widget iconWidget = Icon(
+    icon,
+    color: isSelected ? Colors.deepOrange : Colors.grey[700],
+  );
+  
+  // 🔥 APLICAR BADGE SE NECESSÁRIO
+  if (usarBadge) {
+    iconWidget = EstoqueBadge(child: iconWidget);
   }
+  
+  return ListTile(
+    leading: iconWidget,
+    title: Text(
+      title,
+      style: TextStyle(
+        color: isSelected ? Colors.deepOrange : Colors.black87,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ),
+    ),
+    selected: isSelected,
+    selectedTileColor: Colors.deepOrange.withOpacity(0.1),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(8),
+    ),
+    onTap: () {
+      Navigator.pop(context);
+      if (!isSelected) {
+        Navigator.pushReplacementNamed(context, route);
+      }
+    },
+  );
+}
+
 
   Widget _buildMenuItemComContador({
     required IconData icon,

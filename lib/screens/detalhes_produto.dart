@@ -1,7 +1,6 @@
 // lib/screens/detalhes_produto.dart
 
 import 'package:flutter/material.dart';
-import 'dart:io';
 import '../models/produto.dart';
 import '../models/pedido.dart';
 import '../services/base_de_dados.dart';
@@ -9,6 +8,8 @@ import '../services/pedido_ativo_service.dart';
 import '../models/produto_imagem.dart';
 import '../services/supabase_sync_service.dart';
 import '../services/sessao_service.dart';
+import '../widgets/cached_produto_image.dart';
+import 'dart:async';
 
 
 class DetalhesProdutoScreen extends StatefulWidget {
@@ -103,7 +104,9 @@ double _calcularTotal() {
 }
 
 
-// Substitua o método _adicionarAoPedido completo por este:
+
+
+// 🔥 SUBSTITUIR o bloco try-catch completo:
 
 Future<void> _adicionarAoPedido() async {
   if (_produto == null || _isAdicionando) return;
@@ -120,7 +123,6 @@ Future<void> _adicionarAoPedido() async {
     int pedidoId;
     
     if (_pedidoAtivoService.temPedidoAtivo) {
-      // ADICIONAR AO PEDIDO EXISTENTE
       pedidoId = _pedidoAtivoService.pedidoAtivoId!;
       
       await _syncService.adicionarItemAoPedido(
@@ -141,7 +143,6 @@ Future<void> _adicionarAoPedido() async {
         );
       }
     } else {
-      // CRIAR NOVO PEDIDO
       final item = ItemPedido(
         idPedido: 0,
         idProduto: _produto!.id!,
@@ -164,20 +165,43 @@ Future<void> _adicionarAoPedido() async {
       _pedidoAtivoService.setPedidoAtivo(pedidoId);
       
       if (mounted) {
+        // 🔥 NOVO: Verificar se foi criado offline
+        final modoOffline = !_syncService.isOnline;
+        final icone = modoOffline ? Icons.cloud_off : Icons.check_circle;
+        final cor = modoOffline ? Colors.orange : Colors.green;
+        final mensagem = modoOffline
+            ? 'Pedido criado localmente (#$pedidoId).\nSerá sincronizado quando houver conexão estável.'
+            : 'Novo pedido criado (#$pedidoId) e definido como ativo.';
+        
         _mostrarPopup(
           'Sucesso!',
-          'Novo pedido criado (#$pedidoId) e definido como ativo.',
-          Icons.check_circle,
-          Colors.green,
+          mensagem,
+          icone,
+          cor,
           aoFechar: () => Navigator.of(context).pop(),
         );
       }
     }
-  } catch (e) {
+  } on TimeoutException {
+    // 🔥 NOVO: Tratamento específico para timeout
     if (mounted) {
       _mostrarPopup(
+        'Conexão Instável',
+        'Não foi possível criar o pedido devido à conexão instável.\n\n'
+        'Tente novamente quando a conexão estiver estável.',
+        Icons.wifi_off,
+        Colors.orange,
+      );
+    }
+  } catch (e) {
+    if (mounted) {
+      final mensagem = e.toString().contains('Estoque insuficiente')
+          ? e.toString()
+          : 'Falha ao adicionar produto: $e\n\nVerifique sua conexão e tente novamente.';
+      
+      _mostrarPopup(
         'Erro',
-        'Falha ao adicionar produto: $e',
+        mensagem,
         Icons.error,
         Colors.red,
       );
@@ -286,27 +310,31 @@ Future<void> _adicionarAoPedido() async {
               ),
             
             // Imagem Grande
-            Hero(
-              tag: 'produto_${_produto!.id}',
-              child: caminhoImagem.isNotEmpty
-                  ? Image.file(
-                      File(caminhoImagem),
-                      height: 300,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      height: 300,
-                      width: double.infinity,
-                      color: Colors.grey.shade300,
-                      child: const Icon(
-                        Icons.image_not_supported,
-                        size: 100,
-                        color: Colors.grey,
-                      ),
-                    ),
-            ),
-            
+   Hero(
+  tag: 'produto_${_produto!.id}',
+  child: CachedProdutoImage(
+    imagePath: caminhoImagem,
+    height: 300,
+    width: double.infinity,
+    fit: BoxFit.cover,
+    placeholder: Container(
+      height: 300,
+      color: Colors.grey.shade200,
+      child: const Center(
+        child: CircularProgressIndicator(),
+      ),
+    ),
+    errorWidget: Container(
+      height: 300,
+      color: Colors.grey.shade300,
+      child: const Icon(
+        Icons.image_not_supported,
+        size: 100,
+        color: Colors.grey,
+      ),
+    ),
+  ),
+),
             // Conteúdo
             Padding(
               padding: const EdgeInsets.all(20),

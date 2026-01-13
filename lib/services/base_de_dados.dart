@@ -63,7 +63,7 @@ class DatabaseService {
         quantidade_anterior INTEGER NOT NULL,
         quantidade_nova INTEGER NOT NULL,
         motivo TEXT,
-        data_movimento TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        data_movimento TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
         FOREIGN KEY (id_produto) REFERENCES produto(id_produto) ON DELETE CASCADE,
         FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario) ON DELETE SET NULL
       )
@@ -135,7 +135,7 @@ class DatabaseService {
         senha_hash $textType,
         telefone $textNullable,
         ativo INTEGER DEFAULT 1,
-        data_cadastro TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        data_cadastro TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
         idprovincia $intNullable,
         idcidade $intNullable,
         idperfil $intNullable,
@@ -164,7 +164,7 @@ class DatabaseService {
         quantidade_estoque INTEGER,
         preco_promocional REAL,
         ativo INTEGER DEFAULT 1,
-        data_cadastro TEXT DEFAULT (datetime('now', 'localtime'))
+        data_cadastro TEXT DEFAULT (datetime('now', 'utc'))
     
       )
     ''');
@@ -198,7 +198,7 @@ class DatabaseService {
         id_produto INTEGER NOT NULL,
         classificacao INTEGER NOT NULL,
         comentario $textNullable,
-        data_avaliacao TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        data_avaliacao TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
         UNIQUE(id_usuario, id_produto),
         FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario) ON DELETE CASCADE,
         FOREIGN KEY (id_produto) REFERENCES produto(id_produto) ON DELETE CASCADE
@@ -221,7 +221,7 @@ await db.execute('''
     telefone TEXT,
     email TEXT,
     idtipo_pagamento INTEGER NOT NULL,
-    data_pedido TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    data_pedido TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
     data_fim_pedido TEXT,
     status_pedido TEXT DEFAULT 'por finalizar',
     notificacao_vista INTEGER NOT NULL DEFAULT 0,
@@ -256,7 +256,7 @@ await db.execute('''
         id_rastreamento $idType,
         id_pedido INTEGER NOT NULL,
         status_pedido $textType,
-        data_hora TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        data_hora TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
         FOREIGN KEY (id_pedido) REFERENCES pedido(id_pedido) ON DELETE CASCADE
       )
     ''');
@@ -267,7 +267,7 @@ await db.execute('''
         id_pedido INTEGER NOT NULL,
         motivo $textNullable,
         id_usuario_cancelou INTEGER NOT NULL,
-        data_cancelamento TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        data_cancelamento TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
         FOREIGN KEY (id_pedido) REFERENCES pedido(id_pedido) ON DELETE CASCADE,
         FOREIGN KEY (id_usuario_cancelou) REFERENCES usuario(id_usuario)
       )
@@ -282,7 +282,7 @@ await db.execute('''
         status TEXT DEFAULT 'pendente',
         transaction_id $textNullable,
         paid_at $textNullable,
-        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        created_at TEXT DEFAULT (datetime('now', 'utc')),
         id_pedido $intNullable,
         id_usuario $intNullable,
         FOREIGN KEY (id_pedido) REFERENCES pedido(id_pedido) ON DELETE SET NULL,
@@ -296,7 +296,7 @@ await db.execute('''
         id_fidelidade $idType,
         id_usuario INTEGER NOT NULL UNIQUE,
         pontos INTEGER DEFAULT 0,
-        data_ultima_compra TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        data_ultima_compra TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
         data_expiracao $textNullable,
         FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario) ON DELETE CASCADE
       )
@@ -308,7 +308,7 @@ await db.execute('''
         id_historico $idType,
         id_usuario INTEGER NOT NULL,
         senha_hash $textType,
-        data_alteracao TEXT DEFAULT (datetime('now', 'localtime')),
+        data_alteracao TEXT DEFAULT (datetime('now', 'utc')),
         FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario) ON DELETE CASCADE
       )
     ''');
@@ -319,7 +319,7 @@ await db.execute('''
         id_usuario INTEGER NOT NULL,
         token_hash $textType,
         expires_at $textType,
-        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        created_at TEXT DEFAULT (datetime('now', 'utc')),
         used_at $textNullable,
         ip_solicitacao $textNullable,
         user_agent $textNullable,
@@ -335,7 +335,7 @@ await db.execute('''
         mensagem $textNullable,
         id_pedido $intNullable,
         lida INTEGER DEFAULT 0,
-        data_criacao TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        data_criacao TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
         FOREIGN KEY (id_pedido) REFERENCES pedido(id_pedido) ON DELETE CASCADE
       )
     ''');
@@ -345,7 +345,7 @@ await db.execute('''
         id_log $idType,
         id_usuario $intNullable,
         acao $textNullable,
-        data_hora TEXT DEFAULT (datetime('now', 'localtime')),
+        data_hora TEXT DEFAULT (datetime('now', 'utc')),
         FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario) ON DELETE SET NULL
       )
     ''');
@@ -361,7 +361,7 @@ await db.execute('''
     quantidade_nova INTEGER NOT NULL,
     motivo $textNullable,
     device_id $textNullable,
-    data_movimento TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    data_movimento TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
     FOREIGN KEY (id_produto) REFERENCES produto(id_produto) ON DELETE CASCADE,
     FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario) ON DELETE SET NULL
   )
@@ -1047,7 +1047,8 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
         'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
         [item.quantidade, item.idProduto],
       );
-    }
+
+          }
 
     // 🔥 CORREÇÃO 3: Recalcular total APÓS inserir TODOS os itens
     final totalResult = await txn.rawQuery(
@@ -1129,13 +1130,13 @@ Future<List<ItemPedido>> _readItensPedido(int idPedido) async {
 }
 
 // 5. Auxiliar: Ler itens do pedido COM dados do produto
+// 5. Auxiliar: Ler itens do pedido COM dados do produto
 Future<List<ItemPedido>> _readItensPedidoComProdutos(int idPedido) async {
   final db = await instance.database;
   
-  // 🔥 CORREÇÃO: Usar LEFT JOIN para não filtrar produtos sem categoria
-  // e usar DISTINCT para evitar duplicatas quando há múltiplas categorias
+  // 🔥 CORREÇÃO: Query otimizada sem DISTINCT
   final maps = await db.rawQuery('''
-    SELECT DISTINCT
+    SELECT 
       ip.*,
       p.nome_produto,
       p.preco,
@@ -1153,20 +1154,24 @@ Future<List<ItemPedido>> _readItensPedidoComProdutos(int idPedido) async {
   for (var map in maps) {
     final item = ItemPedido.fromMap(map);
     
-    // Criar objeto Produto simplificado
+    // 🔥 GARANTIR que o nome do produto NUNCA seja nulo
+    final nomeProduto = map['nome_produto'] as String? ?? 'Produto Desconhecido';
+    final caminhoImagem = map['caminho_imagem'] as String?;
+    
+    // Criar objeto Produto com TODOS os dados
     final produto = Produto(
       id: map['id_produto'] as int,
-      nome: map['nome_produto'] as String,
+      nome: nomeProduto, // 🔥 SEMPRE terá um nome
       preco: (map['preco'] as num).toDouble(),
       quantidadeEstoque: map['quantidade_estoque'] as int?,
       dataCadastro: '',
-      imagens: map['caminho_imagem'] != null
+      imagens: caminhoImagem != null && caminhoImagem.isNotEmpty
           ? [ProdutoImagem(
               idProduto: map['id_produto'] as int,
-              caminho: map['caminho_imagem'] as String,
+              caminho: caminhoImagem,
               isPrincipal: true,
             )]
-          : [],
+          : [], // Lista vazia se não houver imagem
     );
     
     itens.add(item.copyWith(produto: produto));
@@ -1174,7 +1179,6 @@ Future<List<ItemPedido>> _readItensPedidoComProdutos(int idPedido) async {
   
   return itens;
 }
-
 // 6. Atualizar quantidade de item (e estoque)
 // 6. Atualizar quantidade de item (e estoque) - VERSÃO CORRIGIDA
 Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
@@ -1501,6 +1505,7 @@ Future<int> createCategoriaComIdEspecifico(
     return idCategoria;
   });
 }
+
 
   Future<int> getDbVersion() async {
     final db = await instance.database;

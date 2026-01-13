@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:bcrypt/bcrypt.dart';
 import '../models/usuario.dart';
-import '../services/base_de_dados.dart';
 import '../services/supabase_sync_service.dart';
 
 class UsuarioFormScreen extends StatefulWidget {

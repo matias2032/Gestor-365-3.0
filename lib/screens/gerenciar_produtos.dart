@@ -9,6 +9,7 @@ import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
 import '../services/estoque_alerta_service.dart';
 import '../services/base_de_dados.dart';
+import '../widgets/cached_produto_image.dart';
 
 
 class GerenciarProdutosScreen extends StatefulWidget {
@@ -213,26 +214,31 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
                   ),
                 ),
                 child: ListTile(
-                  leading: SizedBox(
-                    width: 60,
-                    height: 60,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8.0),
-                      child: caminhoImagem != null && caminhoImagem.isNotEmpty
-                        ? Image.file(
-                            File(caminhoImagem),
-                            fit: BoxFit.cover, 
-                            width: 60,
-                            height: 60,
-                          ) 
-                        : CircleAvatar(
-                            backgroundColor: isAtivo 
-                              ? Colors.teal.shade100 
-                              : Colors.grey.shade300,
-                            child: Text(produto.nome[0]),
-                          ),
-                    ),
-                  ),
+                 leading: SizedBox(
+  width: 60,
+  height: 60,
+  child: ClipRRect(
+    borderRadius: BorderRadius.circular(8.0),
+    child: CachedProdutoImage(
+      imagePath: caminhoImagem,
+      width: 60,
+      height: 60,
+      fit: BoxFit.cover,
+      placeholder: Container(
+        color: Colors.grey.shade200,
+        child: const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+      errorWidget: CircleAvatar(
+        backgroundColor: isAtivo 
+          ? Colors.teal.shade100 
+          : Colors.grey.shade300,
+        child: Text(produto.nome[0]),
+      ),
+    ),
+  ),
+),
                   
                   title: Text(
                     produto.nome,

@@ -1,7 +1,4 @@
-
-// ==========================================
-// 2. WIDGET POPUP - lib/widgets/estoque_alerta_popup.dart
-// ==========================================
+// lib/widgets/estoque_alerta_popup.dart
 
 import 'package:flutter/material.dart';
 import '../services/estoque_alerta_service.dart';
@@ -16,9 +13,12 @@ class EstoqueAlertaPopup extends StatelessWidget {
       builder: (context, _) {
         final service = EstoqueAlertaService.instance;
         
-        if (!service.alertaVisivel || !service.temAlertas) {
+        // 🔥 FILTRO: Só aparecer se houver produtos CRÍTICOS (vermelho/ruptura)
+        if (!service.alertaVisivel || !service.temAlertasCriticos) {
           return const SizedBox.shrink();
         }
+
+        final alertasCriticos = service.alertasCriticos;
 
         return Positioned(
           top: 80,
@@ -44,16 +44,18 @@ class EstoqueAlertaPopup extends StatelessWidget {
                   Row(
                     children: [
                       Icon(
-                        Icons.warning_amber_rounded,
+                        service.nivelMaisCritico == NivelAlerta.ruptura
+                            ? Icons.error
+                            : Icons.warning_amber_rounded,
                         color: service.corAlerta,
                         size: 32,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          service.nivelMaisCritico == NivelAlerta.vermelho
-                              ? 'Estoque Crítico!'
-                              : 'Alerta de Estoque',
+                          service.nivelMaisCritico == NivelAlerta.ruptura
+                              ? '🚨 Ruptura de Estoque!'
+                              : '🔴 Estoque Crítico!',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -69,7 +71,7 @@ class EstoqueAlertaPopup extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    '${service.totalAlertas} produto(s) com estoque baixo:',
+                    '${alertasCriticos.length} produto(s) crítico(s):',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
@@ -77,20 +79,20 @@ class EstoqueAlertaPopup extends StatelessWidget {
                     constraints: const BoxConstraints(maxHeight: 150),
                     child: ListView.builder(
                       shrinkWrap: true,
-                      itemCount: service.alertas.length > 5 ? 5 : service.alertas.length,
+                      itemCount: alertasCriticos.length > 5 ? 5 : alertasCriticos.length,
                       itemBuilder: (context, index) {
-                        final alerta = service.alertas[index];
+                        final alerta = alertasCriticos[index];
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
                           child: Row(
                             children: [
                               Container(
-                                width: 8,
-                                height: 8,
+                                width: 10,
+                                height: 10,
                                 decoration: BoxDecoration(
-                                  color: alerta.nivel == NivelAlerta.vermelho
-                                      ? Colors.red
-                                      : Colors.orange,
+                                  color: alerta.nivel == NivelAlerta.ruptura
+                                      ? const Color(0xFF8B0000)
+                                      : Colors.red,
                                   shape: BoxShape.circle,
                                 ),
                               ),
@@ -102,12 +104,14 @@ class EstoqueAlertaPopup extends StatelessWidget {
                                 ),
                               ),
                               Text(
-                                '${alerta.quantidade} un.',
+                                alerta.quantidade == 0 
+                                    ? 'ZERADO!'
+                                    : '${alerta.quantidade} un.',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: alerta.nivel == NivelAlerta.vermelho
-                                      ? Colors.red
-                                      : Colors.orange,
+                                  color: alerta.nivel == NivelAlerta.ruptura
+                                      ? const Color(0xFF8B0000)
+                                      : Colors.red,
                                 ),
                               ),
                             ],
@@ -116,11 +120,11 @@ class EstoqueAlertaPopup extends StatelessWidget {
                       },
                     ),
                   ),
-                  if (service.alertas.length > 5)
+                  if (alertasCriticos.length > 5)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                        '+ ${service.alertas.length - 5} outros produtos...',
+                        '+ ${alertasCriticos.length - 5} outros produtos críticos...',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[600],
@@ -138,7 +142,7 @@ class EstoqueAlertaPopup extends StatelessWidget {
                             side: BorderSide(color: service.corAlerta),
                           ),
                           child: Text(
-                            'Marcar como Lido',
+                            'Dispensar (2h)',
                             style: TextStyle(color: service.corAlerta),
                           ),
                         ),
@@ -169,4 +173,3 @@ class EstoqueAlertaPopup extends StatelessWidget {
     );
   }
 }
-      

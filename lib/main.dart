@@ -1,17 +1,22 @@
+// lib/main.dart
+
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Serviços
 import 'services/sessao_service.dart';
-import 'services/supabase_sync_service.dart'; // 🔥 Nova importação do Sync
 import 'services/notificacao_estoque_service.dart';
 import 'services/estoque_alerta_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'firebase_options.dart';
+import 'services/push_notification_service.dart';
 
 // Tema
 import 'theme/app_theme.dart';
 import 'providers/theme_provider.dart';
 
-// Importa as telas do seu projeto
+// Telas
+import 'screens/splash_screen.dart';
 import 'screens/gerenciar_usuarios.dart'; 
 import 'screens/cadastrar_usuario.dart';
 import 'screens/tela_login.dart'; 
@@ -23,7 +28,6 @@ import 'screens/cadastrar_produto.dart';
 import 'screens/editar_produto.dart';
 import 'screens/gerenciar_produtos.dart';
 import 'screens/menu.dart';
-// import 'screens/detalhes_pedido.dart';
 import 'screens/finalizar_pedido.dart';
 import 'screens/detalhes_produto.dart';
 import 'screens/pedidos_por_finalizar.dart';
@@ -32,51 +36,94 @@ import 'screens/alterar_senha.dart';
 import 'screens/historico_pedidos.dart';
 import 'screens/logs.dart';
 import 'screens/movimentos_estoque.dart';
-import 'screens/primeira_troca_senha.dart'; 
+import 'screens/primeira_troca_senha.dart';
+import 'screens/corrigir_imagens_screen.dart';
+
+// 🔥 HANDLER BACKGROUND (TOP-LEVEL)
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  print('📬 Background: ${message.messageId}');
+} 
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // ==========================================
-  // 🔐 1. INICIALIZAR SUPABASE (CREDENCIAS REAIS)
-  // ==========================================
-  await Supabase.initialize(
-    url: 'https://uwwzjvovxisakkugzxsh.supabase.co',
-    // Chave anon pública fornecida:
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3d3pqdm92eGlzYWtrdWd6eHNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMjkzMjMsImV4cCI6MjA4MTcwNTMyM30.E3qQ0oxLTLcPphUdHTZmUtjIgzQD651aS8ZxstVvc_Y');
-  print('✅ Supabase inicializado');
-
-  // ==========================================
-  // 🔄 2. INICIALIZAR SERVIÇO DE SINCRONIZAÇÃO
-  // ==========================================
   try {
-    // Inicia o monitoramento de rede e tabelas
- await SupabaseSyncService.instance.initialize();
-    print('✅ Serviço de sincronização inicializado');
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    print('✅ Firebase inicializado');
+    
+    // 🔥 Verificar se app foi aberto por notificação (quando estava fechado)
+    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+      if (message != null) {
+        print('📬 App aberto por notificação (terminated): ${message.data}');
+        // Agendar processamento após app inicializar
+        _agendarProcessamentoNotificacaoInicial(message);
+      }
+    });
+    
   } catch (e) {
-    print('❌ Erro ao inicializar sincronização: $e');
-    // Não paramos o app aqui, pois ele pode rodar offline
+    print('⚠️ Erro Firebase: $e');
   }
-
-  // ==========================================
-  // 🎨 3. INICIALIZAR TEMA
-  // ==========================================
-  await ThemeProvider().initTheme();
-   await NotificacaoEstoqueService.instance.inicializar();
-  await EstoqueAlertaService.instance.inicializar();
   
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+// 🔥 Processar notificação inicial após delay
+void _agendarProcessamentoNotificacaoInicial(RemoteMessage message) {
+  // Aguardar 2 segundos para o app inicializar completamente (splash + validação de sessão)
+  Future.delayed(const Duration(seconds: 2), () async {
+    await PushNotificationService.instance.processarNotificacaoInicial(message);
+  });
+}
 
+// 🔥 SIMPLIFICADO: Lifecycle Observer (apenas atualiza timestamp)
+class AppLifecycleObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    print('🔄 Lifecycle: $state');
+    
+    if (state == AppLifecycleState.resumed) {
+      // App voltou ao foreground - atualizar timestamp
+      SessaoService.instance.marcarAppAtivo();
+    }
+    // Não marcamos encerramento - o Android pode matar sem avisar
+    // A detecção de task removal é feita pela lógica de "primeiro acesso"
+  }
+}
 
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
-      static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  late final AppLifecycleObserver _lifecycleObserver;
+  
+  @override
+  void initState() {
+    super.initState();
+    // 🔥 Registrar observer
+    _lifecycleObserver = AppLifecycleObserver();
+    WidgetsBinding.instance.addObserver(_lifecycleObserver);
+  }
+  
+  @override
+  void dispose() {
+    // 🔥 Remover observer
+    WidgetsBinding.instance.removeObserver(_lifecycleObserver);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-
     final themeProvider = ThemeProvider();
     
     return AnimatedBuilder(
@@ -85,138 +132,179 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Bar Digital POS',
           debugShowCheckedModeBanner: false,
-          
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: themeProvider.themeMode,
-           navigatorKey: navigatorKey,
-          
-          initialRoute: '/',
-          
+          navigatorKey: MyApp.navigatorKey,
+          initialRoute: '/splash',
           onGenerateRoute: (settings) {
-            // 🔥 ROTAS PÚBLICAS (não requerem autenticação)
-            const rotasPublicas = ['/', '/primeira_troca_senha'];
+            const rotasPublicas = [
+              '/splash',
+              '/',
+              '/primeira_troca_senha'
+            ];
             
-            // Proteção de rotas (Middleware simples)
-            if (!rotasPublicas.contains(settings.name) && !SessaoService.instance.isLogado) {
-              return MaterialPageRoute(
-                builder: (_) => const LoginScreen(),
-                settings: RouteSettings(
-                  name: '/',
-                  arguments: settings.name,
-                ),
-              );
+            // 🔥 Validar sessão antes de permitir rotas protegidas
+            if (!rotasPublicas.contains(settings.name)) {
+              if (!SessaoService.instance.isLogado) {
+                return MaterialPageRoute(
+                  builder: (_) => const LoginScreen(),
+                  settings: RouteSettings(
+                    name: '/',
+                    arguments: settings.name,
+                  ),
+                );
+              }
             }
 
             switch (settings.name) {
-              // --- ROTA INICIAL ---
+              case '/splash':
+                return MaterialPageRoute(
+                  builder: (_) => const SplashScreen(),
+                );
+
               case '/':
                 if (SessaoService.instance.isLogado) {
-                  return MaterialPageRoute(builder: (_) => const DashboardVendasScreen());
+                  return MaterialPageRoute(
+                    builder: (_) => const DashboardVendasScreen(),
+                  );
                 }
-                return MaterialPageRoute(builder: (_) => const LoginScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const LoginScreen(),
+                );
 
-              // --- RECUPERAÇÃO DE SENHA ---
               case '/primeira_troca_senha':
-                return MaterialPageRoute(builder: (_) => const PrimeiraTrocaSenhaScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const PrimeiraTrocaSenhaScreen(),
+                );
 
-              // --- DASHBOARD ---
               case '/dashboard':
-                return MaterialPageRoute(builder: (_) => const DashboardVendasScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const DashboardVendasScreen(),
+                );
 
-              // --- MÓDULO USUÁRIOS ---
               case '/gerenciar_usuarios':
-                return MaterialPageRoute(builder: (_) => const UsuarioListScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const UsuarioListScreen(),
+                );
               
               case '/cadastro_usuario':
-                return MaterialPageRoute(builder: (_) => const UsuarioFormScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const UsuarioFormScreen(),
+                );
 
-              // --- MÓDULO PERFIL DO USUÁRIO ---
               case '/editar_usuario':
-                return MaterialPageRoute(builder: (_) => const EditarUsuarioScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const EditarUsuarioScreen(),
+                );
               
               case '/alterar_senha':
-                return MaterialPageRoute(builder: (_) => const AlterarSenhaScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const AlterarSenhaScreen(),
+                );
 
-              // --- MÓDULO CATEGORIAS ---
+              case '/corrigir_imagens':
+                return MaterialPageRoute(
+                  builder: (_) => const CorrigirImagensScreen(),
+                );
+
               case '/gerenciar_categorias':
-                return MaterialPageRoute(builder: (_) => const GerenciarCategoriasScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const GerenciarCategoriasScreen(),
+                );
               
               case '/cadastrar_categoria':
-                return MaterialPageRoute(builder: (_) => const CadastrarCategoriaScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const CadastrarCategoriaScreen(),
+                );
               
               case '/editar_categoria':
                 final categoriaId = settings.arguments as int?;
                 if (categoriaId != null) {
                   return MaterialPageRoute(
-                    builder: (_) => EditarCategoriaScreen(categoriaId: categoriaId),
+                    builder: (_) => EditarCategoriaScreen(
+                      categoriaId: categoriaId,
+                    ),
                   );
                 }
-                return MaterialPageRoute(builder: (_) => const GerenciarCategoriasScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const GerenciarCategoriasScreen(),
+                );
 
-              // --- MÓDULO PRODUTOS ---
               case '/gerenciar_produtos':
-                return MaterialPageRoute(builder: (_) => const GerenciarProdutosScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const GerenciarProdutosScreen(),
+                );
               
               case '/cadastrar_produto':
-                return MaterialPageRoute(builder: (_) => const CadastrarProdutoScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const CadastrarProdutoScreen(),
+                );
               
               case '/editar_produto':
                 final produtoId = settings.arguments as int?;
                 if (produtoId != null) {
                   return MaterialPageRoute(
-                    builder: (_) => EditarProdutoScreen(produtoId: produtoId),
+                    builder: (_) => EditarProdutoScreen(
+                      produtoId: produtoId,
+                    ),
                   );
                 }
-                return MaterialPageRoute(builder: (_) => const GerenciarProdutosScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const GerenciarProdutosScreen(),
+                );
               
               case '/detalhes_produto':
                 final produtoId = settings.arguments as int?;
                 if (produtoId != null) {
                   return MaterialPageRoute(
-                    builder: (_) => DetalhesProdutoScreen(produtoId: produtoId),
+                    builder: (_) => DetalhesProdutoScreen(
+                      produtoId: produtoId,
+                    ),
                   );
                 }
-                return MaterialPageRoute(builder: (_) => const MenuScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const MenuScreen(),
+                );
 
-              // --- MÓDULO MENU/CARDÁPIO ---
               case '/menu':
-                return MaterialPageRoute(builder: (_) => const MenuScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const MenuScreen(),
+                );
 
-              // --- MÓDULO PEDIDOS ---
               case '/pedidos_por_finalizar':
-                return MaterialPageRoute(builder: (_) => const PedidosPorFinalizarScreen());
-              
-             /* case '/detalhes_pedido':
-                final pedidoId = settings.arguments as int?;
-                if (pedidoId != null) {
-                  return MaterialPageRoute(
-                    builder: (_) => DetalhesPedidoScreen(pedidoId: pedidoId),
-                  );
-                }
-                return MaterialPageRoute(builder: (_) => const PedidosPorFinalizarScreen());*/
+                return MaterialPageRoute(
+                  builder: (_) => const PedidosPorFinalizarScreen(),
+                );
               
               case '/finalizar_pedido':
                 final pedidoId = settings.arguments as int?;
                 if (pedidoId != null) {
                   return MaterialPageRoute(
-                    builder: (_) => FinalizarPedidoScreen(pedidoId: pedidoId),
+                    builder: (_) => FinalizarPedidoScreen(
+                      pedidoId: pedidoId,
+                    ),
                   );
                 }
-                return MaterialPageRoute(builder: (_) => const PedidosPorFinalizarScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const PedidosPorFinalizarScreen(),
+                );
 
               case '/historico_pedidos':
-                return MaterialPageRoute(builder: (_) => const HistoricoPedidosScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const HistoricoPedidosScreen(),
+                );
               
               case '/logs':
-                return MaterialPageRoute(builder: (_) => const LogsScreen());
+                return MaterialPageRoute(
+                  builder: (_) => const LogsScreen(),
+                );
 
               case '/movimentos_estoque':
                 return MaterialPageRoute(
-                  builder: (_) => const MovimentosEstoqueScreen()
+                  builder: (_) => const MovimentosEstoqueScreen(),
                 );
 
-              // --- ROTA NÃO ENCONTRADA (404) ---
               default:
                 return MaterialPageRoute(
                   builder: (context) => Scaffold(
@@ -228,11 +316,18 @@ class MyApp extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.error_outline, size: 80, color: Colors.red),
+                          const Icon(
+                            Icons.error_outline,
+                            size: 80,
+                            color: Colors.red,
+                          ),
                           const SizedBox(height: 20),
                           const Text(
                             'Página não encontrada',
-                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 10),
                           Text(

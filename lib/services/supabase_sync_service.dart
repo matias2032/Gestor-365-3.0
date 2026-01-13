@@ -2432,22 +2432,126 @@ Future<int> toggleAtivoUsuario(int id, bool isActive) async {
 
   
 
-  Future<void> deleteItemPedido(int idItemPedido) async {
-    await _localDb.deleteItemPedido(idItemPedido);
+// SUBSTITUIR o método completo:
 
-    // Sincronizar exclusão com Supabase
-    if (_isOnline) {
-      try {
-        // 🔥 CORRIGIDO: Removido estabelecimento_id
+Future<void> deleteItemPedido(int idItemPedido) async {
+  final db = await _localDb.database;
+  
+  await db.transaction((txn) async {
+    // 1. Buscar item antes de deletar
+    final itemMaps = await txn.query(
+      'item_pedido',
+      where: 'id_item_pedido = ?',
+      whereArgs: [idItemPedido],
+    );
+    
+    if (itemMaps.isEmpty) {
+      throw Exception('Item não encontrado');
+    }
+    
+    final item = ItemPedido.fromMap(itemMaps.first);
+    
+    // 2. 🔥 RESTITUIR ESTOQUE (crítico!)
+    await txn.rawUpdate(
+      'UPDATE produto SET quantidade_estoque = quantidade_estoque + ? WHERE id_produto = ?',
+      [item.quantidade, item.idProduto],
+    );
+    
+    print('📦 Estoque restituído: produto ${item.idProduto} (+${item.quantidade})');
+    
+    // 3. Deletar item
+    await txn.delete(
+      'item_pedido',
+      where: 'id_item_pedido = ?',
+      whereArgs: [idItemPedido],
+    );
+    
+    // 4. 🔥 RECALCULAR TOTAL DO PEDIDO (crítico!)
+    final totalResult = await txn.rawQuery(
+      'SELECT SUM(subtotal) as total FROM item_pedido WHERE id_pedido = ?',
+      [item.idPedido],
+    );
+    
+    final total = (totalResult.first['total'] as num?)?.toDouble() ?? 0.0;
+    
+    await txn.update(
+      'pedido',
+      {'total': total},
+      where: 'id_pedido = ?',
+      whereArgs: [item.idPedido],
+    );
+    
+    print('💰 Total recalculado: MZN ${total.toStringAsFixed(2)}');
+    
+    // 5. Se não restarem itens, deletar o pedido
+    final countResult = await txn.rawQuery(
+      'SELECT COUNT(*) as count FROM item_pedido WHERE id_pedido = ?',
+      [item.idPedido],
+    );
+    
+    final count = countResult.first['count'] as int;
+    if (count == 0) {
+      await txn.delete(
+        'pedido',
+        where: 'id_pedido = ?',
+        whereArgs: [item.idPedido],
+      );
+      print('🗑️ Pedido ${item.idPedido} deletado (sem itens restantes)');
+    }
+  });
+
+  // 6. 🔥 SINCRONIZAR COM SUPABASE
+  if (_isOnline) {
+    try {
+      // Buscar item novamente para obter dados atualizados
+      final itemMaps = await db.query(
+        'item_pedido',
+        where: 'id_item_pedido = ?',
+        whereArgs: [idItemPedido],
+      );
+      
+      if (itemMaps.isNotEmpty) {
+        final item = ItemPedido.fromMap(itemMaps.first);
+        
+        // Deletar item no Supabase
         await _supabase
             .from('itens_pedido')
             .delete()
             .eq('id_item_pedido', idItemPedido);
-      } catch (e) {
-        print('⚠️ Erro ao sincronizar exclusão de item: $e');
+        
+        // Restituir estoque no Supabase
+        await _supabase.rpc('increment_stock', params: {
+          'product_id': item.idProduto,
+          'quantity': item.quantidade,
+        });
+        
+        // Atualizar total do pedido no Supabase
+        final pedidoAtualizado = await db.query(
+          'pedido',
+          columns: ['total'],
+          where: 'id_pedido = ?',
+          whereArgs: [item.idPedido],
+        );
+        
+        if (pedidoAtualizado.isNotEmpty) {
+          final totalAtualizado = pedidoAtualizado.first['total'] as double;
+          
+          await _supabase.from('pedidos').update({
+            'total': totalAtualizado,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'device_id': _deviceId,
+          }).eq('id_pedido', item.idPedido);
+        }
+        
+        print('✅ Item deletado e sincronizado com Supabase');
       }
+    } catch (e) {
+      print('⚠️ Erro ao sincronizar exclusão: $e');
     }
   }
+  
+  notificarMudancaEstoque();
+}
 
   Future<int?> getIdCategoriaPromocao() async {
     return await _localDb.getIdCategoriaPromocao();

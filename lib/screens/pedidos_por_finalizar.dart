@@ -28,6 +28,7 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
   int? _pedidoAtivoId;
   int? _pedidoExpandidoId; // Controla qual pedido está expandido
     bool _cancelando = false; // 
+      bool _processandoItem = false; // 🔥 NOVA VARIÁVEL
 
   @override
   void initState() {
@@ -194,14 +195,18 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
 
   // ========== NOVOS MÉTODOS DE EDIÇÃO ==========
   
- Future<void> _alterarQuantidade(Pedido pedido, ItemPedido item, int novaQuantidade) async {
+// SUBSTITUIR o método completo:
+
+Future<void> _alterarQuantidade(Pedido pedido, ItemPedido item, int novaQuantidade) async {
   if (novaQuantidade < 1) {
     await _removerItem(pedido, item);
     return;
   }
 
+  // 🔥 BLOQUEAR UI
+  setState(() => _processandoItem = true);
+
   try {
-    // Atualizar no banco
     await _syncService.updateQuantidadeItem(item.id!, novaQuantidade);
     await _syncService.forcarSincronizacaoCompleta();
     
@@ -214,7 +219,6 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
         ),
       );
       
-      // 🔥 CRÍTICO: Recarregar a lista de pedidos IMEDIATAMENTE
       _refreshPedidos();
     }
   } catch (e) {
@@ -226,6 +230,11 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
           duration: const Duration(seconds: 3),
         ),
       );
+    }
+  } finally {
+    // 🔥 DESBLOQUEAR UI
+    if (mounted) {
+      setState(() => _processandoItem = false);
     }
   }
 }
@@ -267,52 +276,64 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
     }
   }
 
-  Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
-    final confirmado = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remover Item'),
-        content: const Text('Deseja remover este item do pedido?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Remover'),
-          ),
-        ],
-      ),
-    );
+  // SUBSTITUIR o método completo:
 
-    if (confirmado == true) {
-      try {
-        await _syncService.deleteItemPedido(item.id!);
-        await _syncService.forcarSincronizacaoCompleta();
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Item removido!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          _refreshPedidos();
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Erro ao remover: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
+  final confirmado = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Remover Item'),
+      content: const Text('Deseja remover este item do pedido? O estoque será restituído.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancelar'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Remover'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmado == true) {
+    // 🔥 BLOQUEAR UI
+    setState(() => _processandoItem = true);
+    
+    try {
+      await _syncService.deleteItemPedido(item.id!);
+      await _syncService.forcarSincronizacaoCompleta();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Item removido! Estoque restituído.'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        _refreshPedidos();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Erro ao remover: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      // 🔥 DESBLOQUEAR UI
+      if (mounted) {
+        setState(() => _processandoItem = false);
       }
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -711,45 +732,69 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
         ),
 
         // Controles de Quantidade
-        Column(
-          children: [
-            IconButton(
-              icon: const Icon(Icons.add_circle, size: 20, color: Colors.green),
-              onPressed: () => _alterarQuantidade(pedido, item, item.quantidade + 1),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-            InkWell(
-              onTap: () => _editarQuantidadeManual(pedido, item),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.teal),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  '${item.quantidade}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.remove_circle, size: 20, color: Colors.orange),
-              onPressed: () => _alterarQuantidade(pedido, item, item.quantidade - 1),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-          ],
-        ),
+    
 
-        // Botão Remover
-        IconButton(
-          icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-          onPressed: () => _removerItem(pedido, item),
+// Controles de Quantidade
+Column(
+  children: [
+    IconButton(
+      icon: const Icon(Icons.add_circle, size: 20, color: Colors.green),
+      onPressed: (_processandoItem || _cancelando) 
+          ? null 
+          : () => _alterarQuantidade(pedido, item, item.quantidade + 1),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+    ),
+    InkWell(
+      onTap: (_processandoItem || _cancelando) 
+          ? null 
+          : () => _editarQuantidadeManual(pedido, item),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: (_processandoItem || _cancelando) 
+                ? Colors.grey 
+                : Colors.teal,
+          ),
+          borderRadius: BorderRadius.circular(4),
         ),
+        child: Text(
+          '${item.quantidade}',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: (_processandoItem || _cancelando) 
+                ? Colors.grey 
+                : Colors.black,
+          ),
+        ),
+      ),
+    ),
+    IconButton(
+      icon: const Icon(Icons.remove_circle, size: 20, color: Colors.orange),
+      onPressed: (_processandoItem || _cancelando) 
+          ? null 
+          : () => _alterarQuantidade(pedido, item, item.quantidade - 1),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+    ),
+  ],
+),
+
+// Botão Remover
+IconButton(
+  icon: _processandoItem 
+      ? const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        )
+      : const Icon(Icons.delete, color: Colors.red, size: 20),
+  onPressed: (_processandoItem || _cancelando) 
+      ? null 
+      : () => _removerItem(pedido, item),
+),
       ],
     ),
   );

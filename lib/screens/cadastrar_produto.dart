@@ -213,7 +213,7 @@ for (var i = 0; i < _imagemControllers.length; i++) {
 
       // 3. ENVIAR PARA A BASE DE DADOS
       await _syncService.createProduto(novoProduto, idsCategorias, imagensParaSalvar);
-      await _syncService.forcarSincronizacaoCompleta(); // 🔥 NOVO
+   
       // 🔥 ADICIONAR LOG
 await ServicoLogs.instance.registrarCadastroProduto(_nomeController.text.trim());
 

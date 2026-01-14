@@ -120,7 +120,7 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
         valorPago: double.tryParse(_valorRecebidoController.text),
         troco: _troco,
       );
-      await _syncService.forcarSincronizacaoCompleta(); // 🔥 NOVO
+   
 
 
       // 🔥 DESATIVAR PEDIDO AUTOMATICAMENTE APÓS FINALIZAR

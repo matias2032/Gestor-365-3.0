@@ -269,7 +269,7 @@ void _checkPromotionalStatus() {
         }
 
         await _syncService.updateProduto(produtoAtualizado, idsCategorias, imagensParaSalvar);
-        await _syncService.forcarSincronizacaoCompleta(); // 🔥 NOVO
+  
         // 🔥 ADICIONAR LOG
         await ServicoLogs.instance.registrarEdicaoProduto(_nomeController.text.trim());
 

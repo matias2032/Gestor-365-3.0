@@ -60,7 +60,7 @@ class _DetalhesUsuarioScreenState extends State<DetalhesUsuarioScreen> {
     if (shouldProceed == true) {
       await _dbService.toggleAtivoUsuario(usuario.id!, !isAtivo);
       await _syncService.toggleAtivoUsuario(usuario.id!, !isAtivo);
-      await _syncService.forcarSincronizacaoCompleta(); 
+
       _loadUsuario();
       
       if (mounted) {
@@ -162,8 +162,7 @@ final senhaHash = BCrypt.hashpw(senhaPadrao, BCrypt.gensalt());
     // 🔥 updateUsuario JÁ sincroniza com Supabase automaticamente
     await _syncService.updateUsuario(usuarioAtualizado);
     
-    // 🔥 Forçar sincronização completa
-    await _syncService.forcarSincronizacaoCompleta();
+
 
     if (mounted) {
       Navigator.of(context).pop(); // Fechar loading

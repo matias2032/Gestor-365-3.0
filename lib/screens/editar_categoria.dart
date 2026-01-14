@@ -84,7 +84,7 @@ class _EditarCategoriaScreenState extends State<EditarCategoriaScreen> {
 
       try {
         await _syncService.updateCategoria(categoriaAtualizada, idsProdutos);
-        await _syncService.forcarSincronizacaoCompleta(); // 🔥 NOVO
+
         
         // 🔥 ADICIONAR LOG
 await ServicoLogs.instance.registrarEdicaoCategoria(_nomeController.text.trim());

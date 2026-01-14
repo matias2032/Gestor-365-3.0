@@ -63,8 +63,7 @@ final senhaHash = BCrypt.hashpw(senhaPadrao, BCrypt.gensalt());
 
   await _syncService.createUsuario(usuario); // ✅ JÁ USA O SYNC SERVICE
   
-  // 🔥 NOVO: Forçar sincronização imediata
-  await _syncService.forcarSincronizacaoCompleta();
+
 
   if (mounted) {
     ScaffoldMessenger.of(context).showSnackBar(

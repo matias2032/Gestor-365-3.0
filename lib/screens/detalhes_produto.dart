@@ -131,7 +131,7 @@ Future<void> _adicionarAoPedido() async {
         _quantidade,
       );
       
-      await _syncService.forcarSincronizacaoCompleta();
+   
       
       if (mounted) {
         _mostrarPopup(
@@ -160,7 +160,7 @@ Future<void> _adicionarAoPedido() async {
       );
       
       pedidoId = await _syncService.createPedido(pedido, [item]);
-      await _syncService.forcarSincronizacaoCompleta();
+
       
       _pedidoAtivoService.setPedidoAtivo(pedidoId);
       

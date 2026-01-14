@@ -64,7 +64,7 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
   Future<void> _toggleAtivo(int idProduto, bool novoValor) async {
     try {
       await _syncService.toggleAtivoProduto(idProduto, novoValor);
-      await _syncService.forcarSincronizacaoCompleta();
+
       _refreshProducts();
       
       if (mounted) {

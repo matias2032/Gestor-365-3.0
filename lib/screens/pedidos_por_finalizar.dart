@@ -87,7 +87,7 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
     
     try {
       await _syncService.cancelarPedido(pedido.id!, 'Cancelado pelo usuário', 1);
-      await _syncService.forcarSincronizacaoCompleta();
+      // await _syncService.forcarSincronizacaoCompleta();
       
       if (_pedidoAtivoService.pedidoAtivoId == pedido.id) {
         _pedidoAtivoService.limparPedidoAtivo();
@@ -208,7 +208,7 @@ Future<void> _alterarQuantidade(Pedido pedido, ItemPedido item, int novaQuantida
 
   try {
     await _syncService.updateQuantidadeItem(item.id!, novaQuantidade);
-    await _syncService.forcarSincronizacaoCompleta();
+    // await _syncService.forcarSincronizacaoCompleta();
     
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -317,7 +317,7 @@ Future<void> _removerItem(Pedido pedido, ItemPedido item) async {
       print('✅ Item removido com sucesso');
       
       // 🔥 FORÇAR SINCRONIZAÇÃO COMPLETA
-      await _syncService.forcarSincronizacaoCompleta();
+      // await _syncService.forcarSincronizacaoCompleta();
       
       print('✅ Sincronização concluída');
       

@@ -92,96 +92,7 @@ class SupabaseSyncService {
   // INICIALIZAÇÃO
   // ==========================================
 
-void _setupRealtimeListeners() {
 
-// Listener para CATEGORIAS
-_categoriasChannel = _supabase
-    .channel('categorias_changes')
-    .onPostgresChanges(
-      event: PostgresChangeEvent.all,
-      schema: 'public',
-      table: 'categorias',
-      callback: (payload) async {
-        print('🔔 Mudança detectada em categorias: ${payload.eventType}');
-        
-        // 🔥 Para DELETE, sempre sincronizar (não verificar device_id)
-        if (payload.eventType == PostgresChangeEvent.delete) {
-          print('🗑️ Categoria deletada - sincronizando...');
-          await _syncCategorias();
-          return;
-        }
-        
-        // Para INSERT/UPDATE, evitar loop
-        if (payload.newRecord?['device_id'] == _deviceId) {
-          print('⏭️ Ignorando mudança criada por este dispositivo');
-          return;
-        }
-        
-        await _syncCategorias();
-      },
-    )
-    .subscribe();
-
-  // Listener para PRODUTOS
-  _produtosChannel = _supabase
-      .channel('produtos_changes')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'produtos',
-        callback: (payload) async {
-          print('🔔 Mudança detectada em produtos: ${payload.eventType}');
-          
-          if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
-            return;
-          }
-          
-          await _syncProdutos();
-        },
-      )
-      .subscribe();
-
-  // Listener para PEDIDOS
-  _pedidosChannel = _supabase
-      .channel('pedidos_changes')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'pedidos',
-        callback: (payload) async {
-          print('🔔 Mudança detectada em pedidos: ${payload.eventType}');
-          
-          if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
-            return;
-          }
-          
-          await _syncPedidos();
-        },
-      )
-      .subscribe();
-_supabase
-      .channel('movimentos_estoque_changes')
-      .onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'movimento_estoque',
-        callback: (payload) async {
-          print('🔔 Mudança detectada em movimentos de estoque: ${payload.eventType}');
-          
-          if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
-            return;
-          }
-          
-          await _syncMovimentosEstoque();
-        },
-      )
-      .subscribe();
-
-  print('✅ Listeners Realtime configurados!');
-}
 
   Future<void> initialize({String? estabelecimentoId}) async {
     try {
@@ -962,93 +873,115 @@ Future<int> createProduto(
 
 
 
-  Future<int> updateProduto(
-    Produto produto,
-    List<int> idsCategorias,
-    List<ProdutoImagem> imagens,
-  ) async {
-    // 🔥 FAZER UPLOAD DE NOVAS IMAGENS
-    final imagensComUrl = <ProdutoImagem>[];
+Future<int> updateProduto(
+  Produto produto,
+  List<int> idsCategorias,
+  List<ProdutoImagem> imagens,
+) async {
+  // Upload de imagens
+  final imagensComUrl = <ProdutoImagem>[];
+  
+  for (final imagem in imagens) {
+    String? caminhoFinal = imagem.caminho;
     
-    for (final imagem in imagens) {
-      String? caminhoFinal = imagem.caminho;
-      
-      if (!_storageService.isSupabaseUrl(imagem.caminho)) {
-        final urlPublica = await _storageService.uploadImagem(imagem.caminho);
-        
-        if (urlPublica != null) {
-          caminhoFinal = urlPublica;
-        }
+    if (!_storageService.isSupabaseUrl(imagem.caminho)) {
+      final urlPublica = await _storageService.uploadImagem(imagem.caminho);
+      if (urlPublica != null) {
+        caminhoFinal = urlPublica;
       }
-      
-      imagensComUrl.add(imagem.copyWith(caminho: caminhoFinal));
     }
     
-    // 1. Atualizar localmente COM URLS
-    final result = await _localDb.updateProduto(produto, idsCategorias, imagensComUrl);
+    imagensComUrl.add(imagem.copyWith(caminho: caminhoFinal));
+  }
+  
+  // 1. Atualizar localmente COM URLS
+  final result = await _localDb.updateProduto(produto, idsCategorias, imagensComUrl);
 
-    // 2. Sincronizar com Supabase
-    if (_isOnline && produto.id != null) {
-      try {
-        await _supabase
-            .from('produtos')
-            .update({
-              'nome_produto': produto.nome,
-              'descricao': produto.descricao,
-              'preco': produto.preco,
-              'preco_promocional': produto.precoPromocional,
-              'quantidade_estoque': produto.quantidadeEstoque,
-              'ativo': produto.ativo,
-              'updated_at': DateTime.now().toUtc().toIso8601String(),
-            })
-            .eq('id_produto', produto.id!);
-        
-        // Atualizar imagens no Supabase
-        await _supabase
-            .from('produto_imagem')
-            .delete()
-            .eq('id_produto', produto.id!);
-        
-        for (final imagem in imagensComUrl) {
-          await _supabase.from('produto_imagem').insert({
-            'id_produto': produto.id!,
-            'caminho_imagem': imagem.caminho,
-            'legenda': imagem.legenda,
-            'imagem_principal': imagem.isPrincipal ? 1 : 0,
-          });
-        }
-        
-        print('✅ Produto ${produto.id} atualizado no Supabase');
-      } catch (e) {
-        print('⚠️ Erro ao sincronizar atualização: $e');
+  // 2. Sincronizar com Supabase
+  if (_isOnline && produto.id != null) {
+    try {
+      await _supabase
+          .from('produtos')
+          .update({
+            'nome_produto': produto.nome,
+            'descricao': produto.descricao,
+            'preco': produto.preco,
+            'preco_promocional': produto.precoPromocional,
+            'quantidade_estoque': produto.quantidadeEstoque,
+            'ativo': produto.ativo,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'device_id': _deviceId, // 🔥 ADICIONAR device_id
+          })
+          .eq('id_produto', produto.id!);
+      
+      // Atualizar categorias
+      await _supabase
+          .from('produto_categoria')
+          .delete()
+          .eq('id_produto', produto.id!);
+      
+      for (final idCategoria in idsCategorias) {
+        await _supabase.from('produto_categoria').insert({
+          'id_produto': produto.id!,
+          'id_categoria': idCategoria,
+        });
       }
+      
+      // Atualizar imagens
+      await _supabase
+          .from('produto_imagem')
+          .delete()
+          .eq('id_produto', produto.id!);
+      
+      for (final imagem in imagensComUrl) {
+        await _supabase.from('produto_imagem').insert({
+          'id_produto': produto.id!,
+          'caminho_imagem': imagem.caminho,
+          'legenda': imagem.legenda,
+          'imagem_principal': imagem.isPrincipal ? 1 : 0,
+        });
+      }
+      
+      print('✅ Produto ${produto.id} atualizado no Supabase');
+      
+      // 🔥 REMOVER: Não sincronizar novamente (listener fará isso)
+      // await _syncProdutosEspecificos([produto.id!]);
+      
+    } catch (e) {
+      print('⚠️ Erro ao sincronizar atualização: $e');
     }
-
-    return result;
   }
 
-  Future<int> deleteProduto(int idProduto) async {
-    // 1. Deletar localmente
-    final result = await _localDb.deleteProduto(idProduto);
+  return result;
+}
 
-    // 2. Sincronizar com Supabase
-    if (_isOnline) {
-      try {
-        // 🔥 CORRIGIDO: Removido estabelecimento_id
-        await _supabase
-            .from('produtos')
-            .delete()
-            .eq('id_produto', idProduto);
-        print('✅ Produto $idProduto deletado do Supabase');
-      } catch (e) {
-        print('⚠️ Erro ao sincronizar exclusão: $e');
-      }
+ Future<int> deleteProduto(int idProduto) async {
+  // 1. Deletar localmente
+  final result = await _localDb.deleteProduto(idProduto);
+
+  // 2. Sincronizar com Supabase
+  if (_isOnline) {
+    try {
+      await _supabase
+          .from('produtos')
+          .delete()
+          .eq('id_produto', idProduto);
+      
+      print('✅ Produto $idProduto deletado do Supabase');
+      
+      // 🔥 REMOVER: Não sincronizar após deletar
+      // (o listener detectará a exclusão)
+      
+    } catch (e) {
+      print('⚠️ Erro ao sincronizar exclusão: $e');
     }
-
-    return result;
   }
 
-  Future<int> toggleAtivoProduto(int idProduto, bool isActive) async {
+  return result;
+}
+
+
+Future<int> toggleAtivoProduto(int idProduto, bool isActive) async {
   // 1. Atualizar localmente
   final result = await _localDb.toggleAtivoProduto(idProduto, isActive);
   
@@ -1065,9 +998,12 @@ Future<int> createProduto(
           .eq('id_produto', idProduto);
       
       print('✅ Status do produto $idProduto atualizado no Supabase');
+      
+      // 🔥 NOVO: Sincronizar apenas este produto
+      await _syncProdutosEspecificos([idProduto]);
+      
     } catch (e) {
       print('⚠️ Erro ao sincronizar status: $e');
-      // Adicionar à fila offline se falhar
       _addToOfflineQueue(OfflineOperation(
         type: 'toggle_ativo_produto',
         data: {
@@ -1078,7 +1014,6 @@ Future<int> createProduto(
       ));
     }
   } else {
-    // Offline: adicionar à fila
     _addToOfflineQueue(OfflineOperation(
       type: 'toggle_ativo_produto',
       data: {
@@ -1091,6 +1026,7 @@ Future<int> createProduto(
   
   return result;
 }
+
 
 
 
@@ -1155,16 +1091,16 @@ Future<int> updateCategoria(Categoria categoria, List<int> idsProdutos) async {
   // 2. Sincronizar com Supabase
   if (_isOnline && categoria.id != null) {
     try {
-      // Atualizar categoria
       await _supabase
           .from('categorias')
           .update({
             'nome_categoria': categoria.nome,
             'descricao': categoria.descricao,
+            'device_id': _deviceId, // 🔥 ADICIONAR device_id
           })
           .eq('id_categoria', categoria.id!);
       
-      // Atualizar associações: deletar antigas e inserir novas
+      // Atualizar associações
       await _supabase
           .from('produto_categoria')
           .delete()
@@ -1180,6 +1116,9 @@ Future<int> updateCategoria(Categoria categoria, List<int> idsProdutos) async {
       }
       
       print('✅ Categoria ${categoria.id} atualizada no Supabase');
+      
+      // 🔥 REMOVER: Listener fará a sincronização
+      
     } catch (e) {
       print('⚠️ Erro ao sincronizar categoria: $e');
     }
@@ -1188,9 +1127,6 @@ Future<int> updateCategoria(Categoria categoria, List<int> idsProdutos) async {
   return result;
 }
 
-  // lib/services/supabase_sync_service.dart
-
-// SUBSTITUIR o método completo:
 
 // 🔥 SUBSTITUIR o método deleteCategoria completo:
 Future<int> deleteCategoria(int idCategoria) async {
@@ -1507,6 +1443,10 @@ Future<int> _createPedidoOffline(Pedido pedido, List<ItemPedido> itens) async {
 // ==========================================
 
 
+// ==========================================
+// ADICIONAR ITEM A PEDIDO EXISTENTE
+// ==========================================
+
 Future<void> adicionarItemAoPedido(
   int idPedido,
   int idProduto,
@@ -1567,19 +1507,11 @@ Future<void> adicionarItemAoPedido(
       
       print('✅ Item atualizado: $nomeProduto (${quantidadeAtual} → $novaQuantidade)');
       
-      // Sincronizar com Supabase
-      if (_isOnline) {
-        await _supabase.from('itens_pedido').update({
-          'quantidade': novaQuantidade,
-          'subtotal': novoSubtotal,
-        }).eq('id_item_pedido', idItem);
-      }
-      
     } else {
       // 🔥 ITEM NOVO: Inserir
       final subtotal = quantidade * preco;
       
-      final idItemLocal = await txn.insert('item_pedido', {
+      await txn.insert('item_pedido', {
         'id_pedido': idPedido,
         'id_produto': idProduto,
         'quantidade': quantidade,
@@ -1588,18 +1520,6 @@ Future<void> adicionarItemAoPedido(
       });
       
       print('✅ Novo item adicionado: $nomeProduto (x$quantidade)');
-      
-      // Sincronizar com Supabase
-      if (_isOnline) {
-        await _supabase.from('itens_pedido').insert({
-          'id_item_pedido': idItemLocal,
-          'id_pedido': idPedido,
-          'id_produto': idProduto,
-          'quantidade': quantidade,
-          'preco_unitario': preco,
-          'subtotal': subtotal,
-        });
-      }
     }
     
     // 4. 🔥 DÉBITO DE ESTOQUE (sempre executado)
@@ -1610,49 +1530,144 @@ Future<void> adicionarItemAoPedido(
     
     print('📦 Estoque debitado: $nomeProduto (-$quantidade)');
     
-    // Sincronizar estoque no Supabase
-    if (_isOnline) {
+    // 5. 🔥 CRÍTICO: Recalcular total do pedido LOCALMENTE
+    final totalResult = await txn.rawQuery(
+      'SELECT SUM(subtotal) as total FROM item_pedido WHERE id_pedido = ?',
+      [idPedido],
+    );
+
+    final total = (totalResult.first['total'] as num?)?.toDouble() ?? 0.0;
+
+    await txn.update(
+      'pedido',
+      {'total': total},
+      where: 'id_pedido = ?',
+      whereArgs: [idPedido],
+    );
+    
+    print('💰 Total do pedido recalculado localmente: MZN ${total.toStringAsFixed(2)}');
+  }); // 🔥 FIM DA TRANSAÇÃO
+  
+  // ==========================================
+  // SINCRONIZAÇÃO COM SUPABASE (FORA DA TRANSAÇÃO)
+  // ==========================================
+  
+  if (_isOnline) {
+    try {
+      print('🌐 Sincronizando item adicionado com Supabase...');
+      
+      // 1. Verificar se item já existe no Supabase
+      final itemSupabaseResponse = await _supabase
+          .from('itens_pedido')
+          .select('id_item_pedido, quantidade, preco_unitario')
+          .eq('id_pedido', idPedido)
+          .eq('id_produto', idProduto);
+      
+      if (itemSupabaseResponse.isNotEmpty) {
+        // 🔥 ITEM JÁ EXISTE NO SUPABASE: Atualizar quantidade
+        final itemRemoto = itemSupabaseResponse.first;
+        final idItemRemoto = itemRemoto['id_item_pedido'] as int;
+        final quantidadeRemota = itemRemoto['quantidade'] as int;
+        final precoUnitario = (itemRemoto['preco_unitario'] as num).toDouble();
+        
+        final novaQuantidadeRemota = quantidadeRemota + quantidade;
+        final novoSubtotalRemoto = novaQuantidadeRemota * precoUnitario;
+        
+        await _supabase.from('itens_pedido').update({
+          'quantidade': novaQuantidadeRemota,
+          'subtotal': novoSubtotalRemoto,
+        }).eq('id_item_pedido', idItemRemoto);
+        
+        print('✅ Item atualizado no Supabase: quantidade ${quantidadeRemota} → $novaQuantidadeRemota');
+        
+      } else {
+        // 🔥 ITEM NOVO NO SUPABASE: Inserir
+        final itemLocal = await db.query(
+          'item_pedido',
+          where: 'id_pedido = ? AND id_produto = ?',
+          whereArgs: [idPedido, idProduto],
+          limit: 1,
+        );
+        
+        if (itemLocal.isNotEmpty) {
+          final item = itemLocal.first;
+          
+          await _supabase.from('itens_pedido').insert({
+            'id_pedido': idPedido,
+            'id_produto': idProduto,
+            'quantidade': item['quantidade'],
+            'preco_unitario': item['preco_unitario'],
+            'subtotal': item['subtotal'],
+          });
+          
+          print('✅ Novo item inserido no Supabase');
+        }
+      }
+      
+      // 2. Debitar estoque no Supabase
       await _supabase.rpc('decrement_stock', params: {
         'product_id': idProduto,
         'quantity': quantidade,
       });
+      
+      print('✅ Estoque debitado no Supabase: produto $idProduto (-$quantidade)');
+      
+      // 3. Buscar total atualizado do banco local e sincronizar
+      final pedidoAtualizado = await db.query(
+        'pedido',
+        columns: ['total'],
+        where: 'id_pedido = ?',
+        whereArgs: [idPedido],
+      );
+      
+      if (pedidoAtualizado.isNotEmpty) {
+        final totalAtualizado = (pedidoAtualizado.first['total'] as num).toDouble();
+        
+        await _supabase.from('pedidos').update({
+          'total': totalAtualizado,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+          'device_id': _deviceId,
+        }).eq('id_pedido', idPedido);
+        
+        print('✅ Total do pedido sincronizado com Supabase: MZN ${totalAtualizado.toStringAsFixed(2)}');
+      }
+      
+      print('✅ Sincronização completa com Supabase concluída!');
+      
+    } catch (e) {
+      print('⚠️ Erro ao sincronizar com Supabase: $e');
+      
+      // 🔥 ADICIONAR À FILA OFFLINE para sincronizar depois
+      _addToOfflineQueue(OfflineOperation(
+        type: 'adicionar_item_pedido',
+        data: {
+          'id_pedido': idPedido,
+          'id_produto': idProduto,
+          'quantidade': quantidade,
+        },
+        timestamp: DateTime.now(),
+      ));
+      
+      print('📝 Operação adicionada à fila offline');
     }
+  } else {
+    // 🔥 MODO OFFLINE: Adicionar à fila
+    print('📵 Modo offline - adicionando à fila de sincronização');
     
-    // 5. Recalcular total do pedido
-   // 5. 🔥 CRÍTICO: Recalcular total do pedido LOCALMENTE
-final totalResult = await txn.rawQuery(
-  'SELECT SUM(subtotal) as total FROM item_pedido WHERE id_pedido = ?',
-  [idPedido],
-);
-
-final total = (totalResult.first['total'] as num?)?.toDouble() ?? 0.0;
-
-await txn.update(
-  'pedido',
-  {'total': total},
-  where: 'id_pedido = ?',
-  whereArgs: [idPedido],
-  );
-if (_isOnline) {
-  try {
-    await _supabase.from('pedidos').update({
-      'total': total,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id_pedido', idPedido);
-    
-    print('✅ Total sincronizado com Supabase: MZN ${total.toStringAsFixed(2)}');
-  } catch (e) {
-    print('⚠️ Erro ao sincronizar total: $e');
+    _addToOfflineQueue(OfflineOperation(
+      type: 'adicionar_item_pedido',
+      data: {
+        'id_pedido': idPedido,
+        'id_produto': idProduto,
+        'quantidade': quantidade,
+      },
+      timestamp: DateTime.now(),
+    ));
   }
-}
-print('💰 Total do pedido recalculado localmente: MZN ${total.toStringAsFixed(2)}');
-  });
-
   
-  
+  // 🔥 NOTIFICAR MUDANÇAS DE ESTOQUE
   notificarMudancaEstoque();
-}
-// ==========================================
+}// ==========================================
 // ATUALIZAR QUANTIDADE DE ITEM EXISTENTE
 // ==========================================
 
@@ -1815,13 +1830,11 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
 Future<void> cancelarPedido(int idPedido, String motivo, int idUsuarioCancelou) async {
   if (_isOnline) {
     try {
-      // Buscar itens para reverter estoque
       final itensResponse = await _supabase
           .from('itens_pedido')
           .select('id_produto, quantidade')
           .eq('id_pedido', idPedido);
       
-      // Reverter estoque NO SUPABASE
       for (final item in itensResponse) {
         await _supabase.rpc('increment_stock', params: {
           'product_id': item['id_produto'],
@@ -1829,13 +1842,12 @@ Future<void> cancelarPedido(int idPedido, String motivo, int idUsuarioCancelou) 
         });
       }
       
-      // Atualizar status COM DEVICE_ID para evitar loop
       await _supabase
           .from('pedidos')
           .update({
             'status_pedido': 'cancelado',
             'data_finalizacao': DateTime.now().toUtc().toIso8601String(),
-            'device_id': _deviceId, // 🔥 ADICIONAR
+            'device_id': _deviceId,
           })
           .eq('id_pedido', idPedido);
       
@@ -1855,7 +1867,6 @@ Future<void> cancelarPedido(int idPedido, String motivo, int idUsuarioCancelou) 
     }
   }
 
-  // 2. Cancelar localmente
   await _localDb.cancelarPedido(idPedido, motivo, idUsuarioCancelou);
 }
 
@@ -2284,6 +2295,87 @@ case 'create_pedido_completo':
     rethrow; // Mantém na fila para próxima tentativa
   }
   break;
+
+
+
+case 'adicionar_item_pedido':
+  try {
+    final idPedido = operation.data['id_pedido'] as int;
+    final idProduto = operation.data['id_produto'] as int;
+    final quantidade = operation.data['quantidade'] as int;
+    
+    print('🔄 Processando item offline: pedido $idPedido, produto $idProduto');
+    
+    // 1. Buscar preço do produto
+    final produtoResponse = await _supabase
+        .from('produtos')
+        .select('preco')
+        .eq('id_produto', idProduto)
+        .single();
+    
+    final preco = (produtoResponse['preco'] as num).toDouble();
+    
+    // 2. Verificar se item já existe no Supabase
+    final itemExistenteResponse = await _supabase
+        .from('itens_pedido')
+        .select('id_item_pedido, quantidade')
+        .eq('id_pedido', idPedido)
+        .eq('id_produto', idProduto);
+    
+    if (itemExistenteResponse.isNotEmpty) {
+      // Atualizar item existente
+      final itemRemoto = itemExistenteResponse.first;
+      final idItemRemoto = itemRemoto['id_item_pedido'] as int;
+      final quantidadeRemota = itemRemoto['quantidade'] as int;
+      
+      final novaQuantidade = quantidadeRemota + quantidade;
+      final novoSubtotal = novaQuantidade * preco;
+      
+      await _supabase.from('itens_pedido').update({
+        'quantidade': novaQuantidade,
+        'subtotal': novoSubtotal,
+      }).eq('id_item_pedido', idItemRemoto);
+      
+    } else {
+      // Inserir novo item
+      await _supabase.from('itens_pedido').insert({
+        'id_pedido': idPedido,
+        'id_produto': idProduto,
+        'quantidade': quantidade,
+        'preco_unitario': preco,
+        'subtotal': quantidade * preco,
+      });
+    }
+    
+    // 3. Debitar estoque
+    await _supabase.rpc('decrement_stock', params: {
+      'product_id': idProduto,
+      'quantity': quantidade,
+    });
+    
+    // 4. Recalcular total do pedido
+    final itensResponse = await _supabase
+        .from('itens_pedido')
+        .select('subtotal')
+        .eq('id_pedido', idPedido);
+    
+    final totalCalculado = itensResponse.fold<double>(
+      0.0,
+      (sum, item) => sum + ((item['subtotal'] as num).toDouble()),
+    );
+    
+    await _supabase.from('pedidos').update({
+      'total': totalCalculado,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id_pedido', idPedido);
+    
+    print('✅ Item offline processado com sucesso');
+    
+  } catch (e) {
+    print('❌ Erro ao processar item offline: $e');
+    rethrow; // Mantém na fila para próxima tentativa
+  }
+  break;
   
     }
   }
@@ -2681,8 +2773,569 @@ Future<void> deleteItemPedido(int idItemPedido) async {
 // Aproximadamente na linha 900
 
 // ==========================================
-// FORÇAR SINCRONIZAÇÃO APÓS OPERAÇÕES CRUD
+// SINCRONIZAÇÃO SELETIVA (NOVA FUNCIONALIDADE)
 // ==========================================
+
+
+Future<void> sincronizarSeletivo({
+  List<int>? produtosIds,
+  List<int>? categoriasIds,
+  List<int>? pedidosIds,
+  List<int>? usuariosIds,
+  bool sincronizarMovimentos = false,
+}) async {
+  if (!_isOnline) {
+    print('⚠️ Dispositivo offline - sincronização seletiva adiada');
+    return;
+  }
+
+  try {
+    print('🔄 Iniciando sincronização seletiva...');
+    int totalSincronizado = 0;
+
+    // Sincronizar categorias específicas
+    if (categoriasIds != null && categoriasIds.isNotEmpty) {
+      await _syncCategoriasEspecificas(categoriasIds);
+      totalSincronizado += categoriasIds.length;
+    }
+
+    // Sincronizar produtos específicos
+    if (produtosIds != null && produtosIds.isNotEmpty) {
+      await _syncProdutosEspecificos(produtosIds);
+      totalSincronizado += produtosIds.length;
+    }
+
+    // Sincronizar pedidos específicos
+    if (pedidosIds != null && pedidosIds.isNotEmpty) {
+      await _syncPedidosEspecificos(pedidosIds);
+      totalSincronizado += pedidosIds.length;
+    }
+
+    // Sincronizar usuários específicos
+    if (usuariosIds != null && usuariosIds.isNotEmpty) {
+      await _syncUsuariosEspecificos(usuariosIds);
+      totalSincronizado += usuariosIds.length;
+    }
+
+    // Sincronizar movimentos de estoque se solicitado
+    if (sincronizarMovimentos) {
+      await _syncMovimentosEstoque();
+      print('✅ Movimentos de estoque sincronizados');
+    }
+
+    print('✅ Sincronização seletiva concluída ($totalSincronizado registros)');
+  } catch (e) {
+    print('❌ Erro na sincronização seletiva: $e');
+  }
+}
+
+// ==========================================
+// MÉTODOS AUXILIARES DE SYNC SELETIVO
+// ==========================================
+
+/// Sincroniza apenas categorias com IDs específicos
+Future<void> _syncCategoriasEspecificas(List<int> ids) async {
+  try {
+    print('🔄 Sincronizando ${ids.length} categorias...');
+    
+    final response = await _supabase
+        .from('categorias')
+        .select('*')
+        .inFilter('id_categoria', ids);
+
+    final db = await _localDb.database;
+    
+    for (final catMap in response) {
+      final idCategoria = catMap['id_categoria'] as int?;
+      if (idCategoria == null) continue;
+      
+      final categoria = Categoria(
+        id: idCategoria,
+        nome: catMap['nome_categoria'] as String? ?? 'Sem nome',
+        descricao: catMap['descricao'] as String?,
+      );
+
+      final existente = await db.query(
+        'categoria',
+        where: 'id_categoria = ?',
+        whereArgs: [idCategoria],
+        limit: 1,
+      );
+
+      if (existente.isEmpty) {
+        await _localDb.createCategoriaComIdEspecifico(categoria, []);
+        print('  ✅ Categoria $idCategoria criada localmente');
+      } else {
+        await db.update(
+          'categoria',
+          {
+            'nome_categoria': categoria.nome,
+            'descricao': categoria.descricao,
+          },
+          where: 'id_categoria = ?',
+          whereArgs: [idCategoria],
+        );
+        print('  ✅ Categoria $idCategoria atualizada localmente');
+      }
+    }
+
+    print('✅ ${response.length} categorias sincronizadas seletivamente');
+  } catch (e) {
+    print('❌ Erro ao sincronizar categorias específicas: $e');
+    rethrow;
+  }
+}
+
+/// Sincroniza apenas produtos com IDs específicos
+Future<void> _syncProdutosEspecificos(List<int> ids) async {
+  try {
+    print('🔄 Sincronizando ${ids.length} produtos...');
+    
+    final response = await _supabase
+        .from('produtos')
+        .select('*')
+        .inFilter('id_produto', ids);
+
+    for (final produtoMap in response) {
+      await _syncProdutoFromSupabase(produtoMap);
+    }
+
+    print('✅ ${response.length} produtos sincronizados seletivamente');
+  } catch (e) {
+    print('❌ Erro ao sincronizar produtos específicos: $e');
+    rethrow;
+  }
+}
+
+/// Sincroniza apenas pedidos com IDs específicos
+Future<void> _syncPedidosEspecificos(List<int> ids) async {
+  try {
+    print('🔄 Sincronizando ${ids.length} pedidos...');
+    
+    final response = await _supabase
+        .from('pedidos')
+        .select('*')
+        .inFilter('id_pedido', ids);
+
+    final db = await _localDb.database;
+
+    for (final pedidoMap in response) {
+      final idPedido = pedidoMap['id_pedido'] as int?;
+      if (idPedido == null) continue;
+
+      final idTipoPagamento = pedidoMap['idtipo_pagamento'] as int?;
+      if (idTipoPagamento == null) {
+        print('⚠️ Pedido $idPedido sem tipo_pagamento - pulando');
+        continue;
+      }
+
+      final pedidoData = {
+        'id_pedido': idPedido,
+        'reference': pedidoMap['reference'],
+        'id_usuario': pedidoMap['id_usuario'],
+        'telefone': pedidoMap['telefone'],
+        'email': pedidoMap['email'],
+        'idtipo_pagamento': idTipoPagamento,
+        'data_pedido': pedidoMap['data_pedido'],
+        'data_fim_pedido': pedidoMap['data_fim_pedido'],
+        'status_pedido': pedidoMap['status_pedido'] ?? 'por finalizar',
+        'notificacao_vista': pedidoMap['notificacao_vista'] ?? 0,
+        'total': pedidoMap['total'] ?? 0.0,
+        'endereco_json': pedidoMap['endereco_json'],
+        'valor_pago_manual': pedidoMap['valor_pago_manual'] ?? 0.0,
+        'data_finalizacao': pedidoMap['data_finalizacao'],
+        'bairro': pedidoMap['bairro'],
+        'ponto_referencia': pedidoMap['ponto_referencia'],
+        'troco': pedidoMap['troco'] ?? 0.0,
+        'oculto_cliente': pedidoMap['oculto_cliente'] ?? 0,
+      };
+
+      final existente = await db.query(
+        'pedido',
+        where: 'id_pedido = ?',
+        whereArgs: [idPedido],
+        limit: 1,
+      );
+
+      if (existente.isEmpty) {
+        await db.insert('pedido', pedidoData);
+        print('  ✅ Pedido $idPedido inserido localmente');
+      } else {
+        await db.update(
+          'pedido',
+          pedidoData,
+          where: 'id_pedido = ?',
+          whereArgs: [idPedido],
+        );
+        print('  ✅ Pedido $idPedido atualizado localmente');
+      }
+
+      // Sincronizar itens do pedido
+      try {
+        final itensResponse = await _supabase
+            .from('itens_pedido')
+            .select('*')
+            .eq('id_pedido', idPedido);
+
+        await db.delete(
+          'item_pedido',
+          where: 'id_pedido = ?',
+          whereArgs: [idPedido],
+        );
+
+        for (final itemMap in itensResponse) {
+          final idProduto = itemMap['id_produto'] as int?;
+          if (idProduto == null) continue;
+
+          // Validar se produto existe localmente
+          final produtoExiste = await db.query(
+            'produto',
+            columns: ['id_produto'],
+            where: 'id_produto = ?',
+            whereArgs: [idProduto],
+            limit: 1,
+          );
+
+          if (produtoExiste.isEmpty) {
+            print('  ⚠️ Produto $idProduto não existe - sincronizando...');
+            await _syncProdutosEspecificos([idProduto]);
+          }
+
+          await db.insert('item_pedido', {
+            'id_item_pedido': itemMap['id_item_pedido'],
+            'id_pedido': idPedido,
+            'id_produto': idProduto,
+            'quantidade': itemMap['quantidade'],
+            'preco_unitario': itemMap['preco_unitario'],
+            'subtotal': itemMap['subtotal'],
+          });
+        }
+
+        print('  ✅ ${itensResponse.length} itens sincronizados para pedido $idPedido');
+      } catch (e) {
+        print('  ⚠️ Erro ao sincronizar itens: $e');
+      }
+    }
+
+    print('✅ ${response.length} pedidos sincronizados seletivamente');
+  } catch (e) {
+    print('❌ Erro ao sincronizar pedidos específicos: $e');
+    rethrow;
+  }
+}
+
+/// Sincroniza apenas usuários com IDs específicos
+Future<void> _syncUsuariosEspecificos(List<int> ids) async {
+  try {
+    print('🔄 Sincronizando ${ids.length} usuários...');
+    
+    final response = await _supabase
+        .from('usuario')
+        .select('*')
+        .inFilter('id_usuario', ids);
+
+    final db = await _localDb.database;
+
+    for (final usuarioMap in response) {
+      final idUsuario = usuarioMap['id_usuario'] as int?;
+      if (idUsuario == null) continue;
+      
+      final usuario = Usuario(
+        id: idUsuario,
+        nome: usuarioMap['nome'] as String,
+        apelido: usuarioMap['apelido'] as String,
+        email: usuarioMap['email'] as String,
+        senhaHash: usuarioMap['senha_hash'] as String,
+        telefone: usuarioMap['telefone'] as String?,
+        dataCadastro: usuarioMap['data_cadastro'] as String,
+        idProvincia: usuarioMap['idprovincia'] as int?,
+        idCidade: usuarioMap['idcidade'] as int?,
+        idPerfil: usuarioMap['idperfil'] as int?,
+        primeiraSenha: usuarioMap['primeira_senha'] as int? ?? 1,
+        ativo: usuarioMap['ativo'] as int? ?? 1,
+      );
+
+      final existente = await db.query(
+        'usuario',
+        where: 'id_usuario = ?',
+        whereArgs: [idUsuario],
+        limit: 1,
+      );
+
+      if (existente.isEmpty) {
+        await db.insert('usuario', usuario.toMap());
+        print('  ✅ Usuário $idUsuario inserido localmente');
+      } else {
+        await db.update(
+          'usuario',
+          usuario.toMap(),
+          where: 'id_usuario = ?',
+          whereArgs: [idUsuario],
+        );
+        print('  ✅ Usuário $idUsuario atualizado localmente');
+      }
+    }
+
+    print('✅ ${response.length} usuários sincronizados seletivamente');
+  } catch (e) {
+    print('❌ Erro ao sincronizar usuários específicos: $e');
+    rethrow;
+  }
+}
+
+/// Sincroniza apenas movimentos de estoque com IDs específicos
+Future<void> _syncMovimentosEspecificos(List<int> ids) async {
+  try {
+    print('🔄 Sincronizando ${ids.length} movimentos de estoque...');
+    
+    final response = await _supabase
+        .from('movimento_estoque')
+        .select('*')
+        .inFilter('id_movimento', ids);
+
+    final db = await _localDb.database;
+
+    for (final movMap in response) {
+      final idMovimento = movMap['id_movimento'] as int?;
+      if (idMovimento == null) continue;
+
+      final existente = await db.query(
+        'movimento_estoque',
+        where: 'id_movimento = ?',
+        whereArgs: [idMovimento],
+        limit: 1,
+      );
+
+      final movimentoData = {
+        'id_movimento': idMovimento,
+        'id_produto': movMap['id_produto'],
+        'id_usuario': movMap['id_usuario'],
+        'tipo_movimento': movMap['tipo_movimento'],
+        'quantidade': movMap['quantidade'],
+        'quantidade_anterior': movMap['quantidade_anterior'],
+        'quantidade_nova': movMap['quantidade_nova'],
+        'motivo': movMap['motivo'],
+        'device_id': movMap['device_id'],
+        'data_movimento': movMap['data_movimento'],
+      };
+
+      if (existente.isEmpty) {
+        await db.insert('movimento_estoque', movimentoData);
+        print('  ✅ Movimento $idMovimento inserido localmente');
+      } else {
+        await db.update(
+          'movimento_estoque',
+          movimentoData,
+          where: 'id_movimento = ?',
+          whereArgs: [idMovimento],
+        );
+        print('  ✅ Movimento $idMovimento atualizado localmente');
+      }
+    }
+
+    print('✅ ${response.length} movimentos sincronizados seletivamente');
+  } catch (e) {
+    print('❌ Erro ao sincronizar movimentos específicos: $e');
+    rethrow;
+  }
+}
+
+void _setupRealtimeListeners() {
+  print('🔧 Configurando listeners Realtime com sincronização seletiva...');
+
+  // ==========================================
+  // LISTENER PARA CATEGORIAS
+  // ==========================================
+  _categoriasChannel = _supabase
+      .channel('categorias_changes')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'categorias',
+        callback: (payload) async {
+          print('🔔 Mudança detectada em categorias: ${payload.eventType}');
+          
+          // 🔥 IGNORAR mudanças deste dispositivo
+          if (payload.newRecord?['device_id'] == _deviceId) {
+            print('⏭️ Ignorando mudança criada por este dispositivo');
+            return;
+          }
+          
+          // 🔥 DELETAR: Sincronizar todas as categorias (para detectar exclusões)
+          if (payload.eventType == PostgresChangeEvent.delete) {
+            final idCategoria = payload.oldRecord?['id_categoria'] as int?;
+            if (idCategoria != null) {
+              print('🗑️ Categoria $idCategoria deletada - removendo localmente...');
+              
+              final db = await _localDb.database;
+              await db.delete(
+                'categoria',
+                where: 'id_categoria = ?',
+                whereArgs: [idCategoria],
+              );
+              
+              print('✅ Categoria $idCategoria removida do banco local');
+            }
+            return;
+          }
+          
+          // 🔥 INSERT/UPDATE: Sincronizar apenas a categoria alterada
+          final idCategoria = payload.newRecord?['id_categoria'] as int?;
+          if (idCategoria != null) {
+            print('🔄 Sincronizando apenas categoria $idCategoria...');
+            
+            try {
+              await _syncCategoriasEspecificas([idCategoria]);
+              print('✅ Categoria $idCategoria sincronizada via Realtime');
+            } catch (e) {
+              print('❌ Erro ao sincronizar categoria $idCategoria: $e');
+            }
+          }
+        },
+      )
+      .subscribe();
+
+  // ==========================================
+  // LISTENER PARA PRODUTOS
+  // ==========================================
+  _produtosChannel = _supabase
+      .channel('produtos_changes')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'produtos',
+        callback: (payload) async {
+          print('🔔 Mudança detectada em produtos: ${payload.eventType}');
+          
+          // 🔥 IGNORAR mudanças deste dispositivo
+          if (payload.newRecord?['device_id'] == _deviceId) {
+            print('⏭️ Ignorando mudança criada por este dispositivo');
+            return;
+          }
+          
+          // 🔥 DELETAR: Remover localmente
+          if (payload.eventType == PostgresChangeEvent.delete) {
+            final idProduto = payload.oldRecord?['id_produto'] as int?;
+            if (idProduto != null) {
+              print('🗑️ Produto $idProduto deletado - removendo localmente...');
+              
+              final db = await _localDb.database;
+              await db.delete('produto', where: 'id_produto = ?', whereArgs: [idProduto]);
+              await db.delete('produto_categoria', where: 'id_produto = ?', whereArgs: [idProduto]);
+              await db.delete('produto_imagem', where: 'id_produto = ?', whereArgs: [idProduto]);
+              
+              print('✅ Produto $idProduto removido do banco local');
+              notificarMudancaEstoque();
+            }
+            return;
+          }
+          
+          // 🔥 INSERT/UPDATE: Sincronizar apenas o produto alterado
+          final idProduto = payload.newRecord?['id_produto'] as int?;
+          if (idProduto != null) {
+            print('🔄 Sincronizando apenas produto $idProduto...');
+            
+            try {
+              await _syncProdutosEspecificos([idProduto]);
+              print('✅ Produto $idProduto sincronizado via Realtime');
+              notificarMudancaEstoque();
+            } catch (e) {
+              print('❌ Erro ao sincronizar produto $idProduto: $e');
+            }
+          }
+        },
+      )
+      .subscribe();
+
+  // ==========================================
+  // LISTENER PARA PEDIDOS
+  // ==========================================
+  _pedidosChannel = _supabase
+      .channel('pedidos_changes')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'pedidos',
+        callback: (payload) async {
+          print('🔔 Mudança detectada em pedidos: ${payload.eventType}');
+          
+          // 🔥 IGNORAR mudanças deste dispositivo
+          if (payload.newRecord?['device_id'] == _deviceId) {
+            print('⏭️ Ignorando mudança criada por este dispositivo');
+            return;
+          }
+          
+          // 🔥 DELETAR: Remover localmente
+          if (payload.eventType == PostgresChangeEvent.delete) {
+            final idPedido = payload.oldRecord?['id_pedido'] as int?;
+            if (idPedido != null) {
+              print('🗑️ Pedido $idPedido deletado - removendo localmente...');
+              
+              final db = await _localDb.database;
+              await db.delete('item_pedido', where: 'id_pedido = ?', whereArgs: [idPedido]);
+              await db.delete('pedido', where: 'id_pedido = ?', whereArgs: [idPedido]);
+              
+              print('✅ Pedido $idPedido removido do banco local');
+            }
+            return;
+          }
+          
+          // 🔥 INSERT/UPDATE: Sincronizar apenas o pedido alterado
+          final idPedido = payload.newRecord?['id_pedido'] as int?;
+          if (idPedido != null) {
+            print('🔄 Sincronizando apenas pedido $idPedido...');
+            
+            try {
+              await _syncPedidosEspecificos([idPedido]);
+              print('✅ Pedido $idPedido sincronizado via Realtime');
+            } catch (e) {
+              print('❌ Erro ao sincronizar pedido $idPedido: $e');
+            }
+          }
+        },
+      )
+      .subscribe();
+
+  // ==========================================
+  // LISTENER PARA MOVIMENTOS DE ESTOQUE
+  // ==========================================
+  _supabase
+      .channel('movimentos_estoque_changes')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'movimento_estoque',
+        callback: (payload) async {
+          print('🔔 Mudança detectada em movimentos de estoque: ${payload.eventType}');
+          
+          // 🔥 IGNORAR mudanças deste dispositivo
+          if (payload.newRecord?['device_id'] == _deviceId) {
+            print('⏭️ Ignorando mudança criada por este dispositivo');
+            return;
+          }
+          
+          final idMovimento = payload.newRecord?['id_movimento'] as int?;
+          final idProduto = payload.newRecord?['id_produto'] as int?;
+          
+          if (idMovimento != null && idProduto != null) {
+            print('🔄 Sincronizando movimento $idMovimento e produto $idProduto...');
+            
+            try {
+              await _syncMovimentosEspecificos([idMovimento]);
+              await _syncProdutosEspecificos([idProduto]);
+              
+              print('✅ Movimento e estoque sincronizados via Realtime');
+              notificarMudancaEstoque();
+            } catch (e) {
+              print('❌ Erro ao sincronizar movimento: $e');
+            }
+          }
+        },
+      )
+      .subscribe();
+
+  print('✅ Listeners Realtime configurados com sincronização seletiva!');
+}
 
 Future<void> forcarSincronizacaoCompleta() async {
   if (!_isOnline) {

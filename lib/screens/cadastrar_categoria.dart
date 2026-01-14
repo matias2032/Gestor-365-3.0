@@ -52,8 +52,7 @@ class _CadastrarCategoriaScreenState extends State<CadastrarCategoriaScreen> {
 try {
   await _syncService.createCategoria(novaCategoria, idsProdutos);
   
-  // 🔥 NOVO: Forçar sincronização
-  await _syncService.forcarSincronizacaoCompleta();
+ 
   
   await ServicoLogs.instance.registrarCadastroCategoria(_nomeController.text.trim());
   

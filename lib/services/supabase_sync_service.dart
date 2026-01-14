@@ -1931,13 +1931,13 @@ Future<void> finalizarPedido(
   }
 
 Future<List<Pedido>> readPedidosPorFinalizar(int idUsuario) async {
-  // 🔥 GARANTIR SINCRONIZAÇÃO ANTES DE LER
-  if (_isOnline) {
-    await _syncPedidos();
-  }
+  // // 🔥 GARANTIR SINCRONIZAÇÃO ANTES DE LER
+  // if (_isOnline) {
+  //   await _syncPedidos();
+  // }
   
   // 🔥 FILTRAR POR USUÁRIO
-  return await _localDb.readPedidosPorFinalizar(idUsuario);
+   return await _localDb.readPedidosPorFinalizar(idUsuario);
 }
 
   Future<Pedido?> readPedidoComDetalhes(int idPedido) async {

@@ -60,6 +60,9 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
       duration: const Duration(milliseconds: 300),
     );
     _animationController.forward();
+
+    _sincronizarSeNecessario();
+
     _produtosFuture = _fetchProdutos();
     _fetchCategorias();
     _atualizarContadorPedidos();
@@ -94,6 +97,20 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
     _contadorSubscription?.cancel(); // 🔥 NOVO
     super.dispose();
   }
+  // ADICIONAR MÉTODO NOVO:
+Future<void> _sincronizarSeNecessario() async {
+  final ultimaSync = _syncService.lastSyncTime;
+  final agora = DateTime.now();
+  
+  // Sincronizar apenas se passou mais de 5 minutos
+  if (ultimaSync == null || 
+      agora.difference(ultimaSync).inMinutes > 5) {
+    print('⏱️ Última sync há ${ultimaSync != null ? agora.difference(ultimaSync).inMinutes : "∞"} min - sincronizando...');
+    await _syncService.sincronizarSeletivo(sincronizarMovimentos: false);
+  } else {
+    print('✅ Dados recentes - usando cache local');
+  }
+}
 
  Future<void> _atualizarContadorPedidos() async {
   try {
@@ -117,34 +134,27 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
   }
 }
 
- Future<List<Produto>> _fetchProdutos() async {
+
+Future<List<Produto>> _fetchProdutos() async {
   try {
+    // 🔥 LEITURA PURA DO BANCO LOCAL (SEM SYNC)
     final produtos = await _dbService.readAllProdutosWithAssoc();
     
     return produtos.where((p) {
-      // 🔥 NOVO: Filtrar apenas produtos ativos
-      if (p.ativo != 1) {
-        return false;
-      }
+      if (p.ativo != 1) return false;
       
       if (_buscaNome.isNotEmpty && 
           !p.nome.toLowerCase().contains(_buscaNome.toLowerCase())) {
         return false;
       }
       
-      if (_precoMin != null && p.preco < _precoMin!) {
-        return false;
-      }
-      
-      if (_precoMax != null && p.preco > _precoMax!) {
-        return false;
-      }
+      if (_precoMin != null && p.preco < _precoMin!) return false;
+      if (_precoMax != null && p.preco > _precoMax!) return false;
       
       if (_categoriaSelecionada != null) {
         final temCategoria = p.categoriasAssociadas?.any(
           (c) => c.id == _categoriaSelecionada
         ) ?? false;
-        
         if (!temCategoria) return false;
       }
       
@@ -155,7 +165,6 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
     return [];
   }
 }
-
   Future<void> _fetchCategorias() async {
     try {
       final categorias = await _dbService.readAllCategoriasSimples();

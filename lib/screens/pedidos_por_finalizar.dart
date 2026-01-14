@@ -34,8 +34,35 @@ class _PedidosPorFinalizarScreenState extends State<PedidosPorFinalizarScreen> {
   void initState() {
     super.initState();
     _pedidoAtivoId = _pedidoAtivoService.pedidoAtivoId;
+     
+  // 🔥 SINCRONIZAR APENAS PEDIDOS DO USUÁRIO LOGADO
+  _sincronizarPedidosSeNecessario();
+
     _pedidosFuture = _carregarPedidos();
   }
+
+  // ADICIONAR MÉTODO NOVO:
+Future<void> _sincronizarPedidosSeNecessario() async {
+  final ultimaSync = _syncService.lastSyncTime;
+  final agora = DateTime.now();
+  
+  if (ultimaSync == null || agora.difference(ultimaSync).inMinutes > 3) {
+    final usuario = SessaoService.instance.usuarioAtual;
+    if (usuario == null) return;
+    
+    print('🔄 Sincronizando pedidos do usuário ${usuario.id}...');
+    
+    // 🔥 BUSCAR IDS DOS PEDIDOS LOCAIS DO USUÁRIO
+    final pedidosLocais = await _dbService.readPedidosPorFinalizar(usuario.id!);
+    final ids = pedidosLocais.map((p) => p.id!).toList();
+    
+    // 🔥 SINCRONIZAR APENAS ESSES PEDIDOS
+    if (ids.isNotEmpty) {
+      await _syncService.sincronizarSeletivo(pedidosIds: ids);
+    }
+  }
+}
+
 
   Future<List<Pedido>> _carregarPedidos() async {
     final usuario = SessaoService.instance.usuarioAtual;

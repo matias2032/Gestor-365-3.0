@@ -53,11 +53,11 @@ void initState() {
   });
 }
 
-// 🔥 NOVO MÉTODO
 Future<void> _carregarContadorDoUsuario() async {
   final usuario = SessaoService.instance.usuarioAtual;
   if (usuario != null) {
-    await _contadorService.carregarContador(usuario.id!);
+    // 🔥 NOVO: Usar método com cache inteligente
+    await _contadorService.recarregarSeNecessario();
   }
 }
 

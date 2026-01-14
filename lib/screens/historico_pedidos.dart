@@ -7,6 +7,8 @@ import '../services/base_de_dados.dart';
 import '../services/pdf_service.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
+import '../models/produto.dart';      // 🔥 NOVO
+import '../models/produto_imagem.dart'; // 🔥 NOVO
 import 'dart:io';
 
 enum PeriodoFiltro {
@@ -60,19 +62,55 @@ class _HistoricoPedidosScreenState extends State<HistoricoPedidosScreen> {
     return pedidos;
   }
 
-  Future<List<ItemPedido>> _loadItensPedido(int idPedido) async {
-    final db = DatabaseService.instance;
-    final result = await db.database;
-    
-    final itensMaps = await result.rawQuery('''
-      SELECT ip.*, p.nome_produto
-      FROM item_pedido ip
-      INNER JOIN produto p ON ip.id_produto = p.id_produto
-      WHERE ip.id_pedido = ?
-    ''', [idPedido]);
+Future<List<ItemPedido>> _loadItensPedido(int idPedido) async {
+  final db = DatabaseService.instance;
+  final result = await db.database;
+  
+  // 🔥 CORREÇÃO: Adicionar LEFT JOIN com produto_imagem
+  final itensMaps = await result.rawQuery('''
+    SELECT 
+      ip.*,
+      p.nome_produto,
+      p.preco,
+      p.quantidade_estoque,
+      pi.caminho_imagem
+    FROM item_pedido ip
+    INNER JOIN produto p ON ip.id_produto = p.id_produto
+    LEFT JOIN produto_imagem pi ON p.id_produto = pi.id_produto AND pi.imagem_principal = 1
+    WHERE ip.id_pedido = ?
+    ORDER BY ip.id_item_pedido
+  ''', [idPedido]);
 
-    return itensMaps.map((map) => ItemPedido.fromMap(map)).toList();
+  final List<ItemPedido> itens = [];
+  
+  for (var map in itensMaps) {
+    final item = ItemPedido.fromMap(map);
+    
+    // 🔥 GARANTIR que o nome do produto NUNCA seja nulo
+    final nomeProduto = map['nome_produto'] as String? ?? 'Produto Desconhecido';
+    final caminhoImagem = map['caminho_imagem'] as String?;
+    
+    // Criar objeto Produto completo
+    final produto = Produto(
+      id: map['id_produto'] as int,
+      nome: nomeProduto,
+      preco: (map['preco'] as num).toDouble(),
+      quantidadeEstoque: map['quantidade_estoque'] as int?,
+      dataCadastro: '',
+      imagens: caminhoImagem != null && caminhoImagem.isNotEmpty
+          ? [ProdutoImagem(
+              idProduto: map['id_produto'] as int,
+              caminho: caminhoImagem,
+              isPrincipal: true,
+            )]
+          : [],
+    );
+    
+    itens.add(item.copyWith(produto: produto));
   }
+  
+  return itens;
+}
 
   String _getDataInicio(PeriodoFiltro filtro) {
     final agora = DateTime.now();
@@ -396,22 +434,32 @@ class _HistoricoPedidosScreenState extends State<HistoricoPedidosScreen> {
                 ),
                 const SizedBox(height: 8),
                 ...?pedido.itens?.map((item) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${item.quantidade}x ${item.produto?.nome ?? "Produto"}',
-                            ),
-                          ),
-                          Text(
-                            'MZN ${item.subtotal.toStringAsFixed(2)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    )),
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          // 🔥 NOVO: Exibir imagem do produto
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: _buildImagemProduto(item),
+          ),
+          const SizedBox(width: 12),
+          
+          // Nome e quantidade
+          Expanded(
+            child: Text(
+              '${item.quantidade}x ${item.produto?.nome ?? "Produto"}',
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+          
+          // Subtotal
+          Text(
+            'MZN ${item.subtotal.toStringAsFixed(2)}',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    )),
                 const Divider(),
                 if (pedido.telefone != null)
                   Padding(
@@ -442,4 +490,75 @@ class _HistoricoPedidosScreenState extends State<HistoricoPedidosScreen> {
       ),
     );
   }
+  // 🔥 NOVO MÉTODO (reutiliza lógica de pedidos_por_finalizar.dart)
+Widget _buildImagemProduto(ItemPedido item) {
+  const double tamanho = 50.0;
+  
+  final produto = item.produto;
+  
+  // Caso 1: Sem produto ou sem imagens
+  if (produto == null || produto.imagens == null || produto.imagens!.isEmpty) {
+    return Container(
+      width: tamanho,
+      height: tamanho,
+      color: Colors.grey.shade300,
+      child: const Icon(
+        Icons.image_not_supported,
+        color: Colors.grey,
+        size: 24,
+      ),
+    );
+  }
+  
+  // Buscar imagem principal
+  final imagem = produto.imagens!.firstWhere(
+    (img) => img.isPrincipal,
+    orElse: () => produto.imagens!.first,
+  );
+  
+  // Caso 2: URL do Supabase (online)
+  if (imagem.caminho.startsWith('http')) {
+    return Image.network(
+      imagem.caminho,
+      width: tamanho,
+      height: tamanho,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          width: tamanho,
+          height: tamanho,
+          color: Colors.red.shade100,
+          child: const Icon(Icons.broken_image, color: Colors.red, size: 24),
+        );
+      },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          width: tamanho,
+          height: tamanho,
+          color: Colors.grey.shade200,
+          child: const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      },
+    );
+  }
+  
+  // Caso 3: Caminho local
+  return Image.file(
+    File(imagem.caminho),
+    width: tamanho,
+    height: tamanho,
+    fit: BoxFit.cover,
+    errorBuilder: (context, error, stackTrace) {
+      return Container(
+        width: tamanho,
+        height: tamanho,
+        color: Colors.orange.shade100,
+        child: const Icon(Icons.image_not_supported, color: Colors.orange, size: 24),
+      );
+    },
+  );
+}
 }

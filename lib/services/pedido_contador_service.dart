@@ -1,6 +1,8 @@
+// lib/services/pedido_contador_service.dart
+
 import 'dart:async';
 import 'base_de_dados.dart';
-import 'supabase_sync_service.dart'; 
+import 'sessao_service.dart'; // 🔥 NOVO IMPORT
 
 /// Service global para gerenciar o contador de pedidos por finalizar
 /// Mantém todos os widgets sincronizados automaticamente
@@ -11,7 +13,6 @@ class PedidoContadorService {
   PedidoContadorService._internal();
 
   final DatabaseService _dbService = DatabaseService.instance;
-   final SupabaseSyncService _syncService = SupabaseSyncService.instance; 
 
   // Stream para notificar mudanças no contador
   final _contadorStreamController = StreamController<int>.broadcast();
@@ -24,30 +25,69 @@ class PedidoContadorService {
   // Flag para evitar múltiplas cargas simultâneas
   bool _isLoading = false;
 
-  /// 🔥 NOVO: Carrega o contador do banco de dados
-  /// Deve ser chamado após o login
-  /// Carrega o contador do banco de dados
+  // 🔥 NOVO: Timestamp da última atualização
+  DateTime? _ultimaAtualizacao;
+
+  /// 🔥 MÉTODO CORRIGIDO: Carrega o contador do banco LOCAL
+  /// Não dispara sincronização - apenas leitura pura
   Future<void> carregarContador(int idUsuario) async {
-    if (_isLoading) return;
-    
+    // Evitar cargas simultâneas
+    if (_isLoading) {
+      print('⏳ Já existe um carregamento em andamento');
+      return;
+    }
+
     _isLoading = true;
+
     try {
-      // 🔥 USAR SYNC SERVICE para garantir dados atualizados
-      final pedidos = await _syncService.readPedidosPorFinalizar(idUsuario);
-      atualizarContador(pedidos.length);
+      print('📊 Carregando contador de pedidos (usuário $idUsuario)...');
+      
+      // 🔥 LEITURA PURA DO BANCO LOCAL (SEM SINCRONIZAÇÃO)
+      final pedidos = await _dbService.readPedidosPorFinalizar(idUsuario);
+      final novoContador = pedidos.length;
+      
+      atualizarContador(novoContador);
+      _ultimaAtualizacao = DateTime.now();
+      
+      print('✅ Contador carregado: $novoContador pedidos');
+      
     } catch (e) {
-      print('Erro ao carregar contador de pedidos: $e');
-      atualizarContador(0);
+      print('❌ Erro ao carregar contador: $e');
+      // Não altera o contador em caso de erro
     } finally {
       _isLoading = false;
     }
   }
 
+  /// 🔥 NOVO: Recarrega o contador se necessário (cache inteligente)
+  /// Usa cache se a última atualização foi recente (< 30 segundos)
+  Future<void> recarregarSeNecessario() async {
+    final usuario = SessaoService.instance.usuarioAtual;
+    if (usuario == null) {
+      print('⚠️ Nenhum usuário logado - não é possível recarregar contador');
+      return;
+    }
+
+    final agora = DateTime.now();
+    
+    // 🔥 CACHE: Só recarrega se passou mais de 30 segundos
+    if (_ultimaAtualizacao != null &&
+        agora.difference(_ultimaAtualizacao!).inSeconds < 30) {
+      print('✅ Usando contador em cache ($_contadorAtual)');
+      return;
+    }
+
+    print('🔄 Cache expirado - recarregando contador...');
+    await carregarContador(usuario.id!);
+  }
+
   /// Atualiza o contador e notifica todos os listeners
   void atualizarContador(int novoValor) {
     if (_contadorAtual != novoValor) {
+      print('📊 Contador atualizado: $_contadorAtual → $novoValor');
       _contadorAtual = novoValor;
       _contadorStreamController.add(_contadorAtual);
+      _ultimaAtualizacao = DateTime.now(); // 🔥 Atualiza timestamp
     }
   }
 
@@ -63,9 +103,18 @@ class PedidoContadorService {
     }
   }
 
-  /// Reseta o contador para 0
+  /// Reseta o contador para 0 (usado no logout)
   void resetar() {
-    atualizarContador(0);
+    print('🔄 Resetando contador de pedidos');
+    _contadorAtual = 0;
+    _ultimaAtualizacao = null;
+    _contadorStreamController.add(0);
+  }
+
+  /// 🔥 NOVO: Invalida o cache forçando próxima leitura do banco
+  void invalidarCache() {
+    print('⚠️ Cache do contador invalidado');
+    _ultimaAtualizacao = null;
   }
 
   /// Libera recursos

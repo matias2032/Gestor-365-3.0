@@ -128,10 +128,24 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
         _pedidoAtivoService.limparPedidoAtivo();
       }
 
-      if (mounted) {
-        await _mostrarDialogoFatura();
-      }
+      // if (mounted) {
+      //   await _mostrarDialogoFatura();
+      // }
 
+
+// 🔥 NOVO: Redirecionar diretamente para o menu
+if (mounted) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('✅ Pedido finalizado com sucesso!'),
+      backgroundColor: Colors.green,
+      duration: Duration(seconds: 2),
+    ),
+  );
+  
+  // Redirecionar para o menu
+  Navigator.of(context).pushNamedAndRemoveUntil('/menu', (route) => false);
+}
 
     } catch (e) {
       setState(() => _isFinalizando = false);
@@ -381,9 +395,9 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
   }
 
   void _voltarParaInicio() {
-    if (mounted) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
-    }
+    // if (mounted) {
+    //   Navigator.of(context).popUntil((route) => route.isFirst);
+    // }
   }
 
   @override

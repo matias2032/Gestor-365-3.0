@@ -828,18 +828,28 @@ Column(
 ),
 
 // Botão Remover
-IconButton(
-  icon: _processandoItem 
-      ? const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        )
-      : const Icon(Icons.delete, color: Colors.red, size: 20),
-  onPressed: (_processandoItem || _cancelando) 
-      ? null 
-      : () => _removerItem(pedido, item),
-),
+// 🔥 Botão Remover (desabilitado se for o último item)
+if ((pedido.itens?.length ?? 0) > 1)
+  IconButton(
+    icon: _processandoItem 
+        ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : const Icon(Icons.delete, color: Colors.red, size: 20),
+    onPressed: (_processandoItem || _cancelando) 
+        ? null 
+        : () => _removerItem(pedido, item),
+  )
+else
+  Tooltip(
+    message: 'Não é possível remover o último item',
+    child: IconButton(
+      icon: Icon(Icons.delete, color: Colors.grey.shade400, size: 20),
+      onPressed: null, // Sempre desabilitado
+    ),
+  ),
       ],
     ),
   );

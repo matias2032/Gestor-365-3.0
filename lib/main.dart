@@ -41,6 +41,7 @@ import 'screens/corrigir_imagens_screen.dart';
 import 'services/conectividade_service.dart';
 import 'widgets/conectividade_dialog.dart';
 import 'widgets/conectividade_indicator.dart';
+import 'services/supabase_sync_service.dart';
 
 // 🔥 HANDLER BACKGROUND (TOP-LEVEL)
 @pragma('vm:entry-point')
@@ -104,36 +105,47 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-// 🔥 ADICIONAR NOVA CLASSE: Listener Global de Conectividade
+// 🔥 SUBSTITUIR a classe ConectividadeListener:
+
 class ConectividadeListener {
   static bool _dialogAberto = false;
   
   static void inicializar(BuildContext context) {
-    ConectividadeService.instance.addListener((isOnline) {
-      _onConnectivityChange(context, isOnline);
+    // 🔥 MODIFICADO: Listener agora recebe 2 parâmetros
+    ConectividadeService.instance.addListener((isOnline, forcarSync) {
+      _onConnectivityChange(context, isOnline, forcarSync);
     });
   }
   
-  static void _onConnectivityChange(BuildContext context, bool isOnline) {
+  static void _onConnectivityChange(
+    BuildContext context, 
+    bool isOnline, 
+    bool forcarSync, // 🔥 NOVO PARÂMETRO
+  ) {
     final service = ConectividadeService.instance;
     
     // Se voltou ONLINE
     if (isOnline) {
       _mostrarSnackBar(
         context,
-        'Conexão restaurada! Dados serão sincronizados.',
+        'Conexão restaurada!',
         Colors.green,
         Icons.wifi,
       );
       _dialogAberto = false;
+      
+      // 🔥 NOVO: Só sincronizar se flag estiver true
+      if (forcarSync) {
+        print('🔄 Forçando sincronização completa (passou muito tempo offline)');
+        _sincronizarAposReconexao();
+      } else {
+        print('✅ Conexão restaurada, mas sincronização recente - usando cache');
+      }
+      
       return;
     }
     
-    // Se ficou OFFLINE
-    // Só mostrar dialog se:
-    // 1. Não estiver em modo offline manual
-    // 2. Não houver dialog já aberto
-    // 3. Não estiver na splash screen
+    // Se ficou OFFLINE (resto do código igual)
     final rotaAtual = ModalRoute.of(context)?.settings.name;
     
     if (!service.modoOfflineManual && 
@@ -147,7 +159,6 @@ class ConectividadeListener {
         onReconectar: () async {
           _dialogAberto = false;
           
-          // Revalidar sessão em background
           if (SessaoService.instance.isLogado) {
             final sessaoValida = await SessaoService.instance.validarSessao();
             
@@ -171,6 +182,21 @@ class ConectividadeListener {
       ).then((_) {
         _dialogAberto = false;
       });
+    }
+  }
+  
+  // 🔥 NOVO MÉTODO: Sincronização inteligente
+  static Future<void> _sincronizarAposReconexao() async {
+    try {
+      await SupabaseSyncService.instance.syncOfflineQueue();
+      await SupabaseSyncService.instance.syncAll();
+      
+      // Marcar que foi feita sync completa
+      ConectividadeService.instance.marcarSyncCompleta();
+      
+      print('✅ Sincronização pós-reconexão concluída');
+    } catch (e) {
+      print('❌ Erro na sincronização: $e');
     }
   }
   

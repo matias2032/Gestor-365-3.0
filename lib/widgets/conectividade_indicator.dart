@@ -28,11 +28,17 @@ class _ConectividadeIndicatorState extends State<ConectividadeIndicator> {
     super.dispose();
   }
 
-  void _onConnectivityChange(bool isOnline) {
+  // 🔥 CORRIGIDO: Agora recebe 2 parâmetros (isOnline, forcarSync)
+  void _onConnectivityChange(bool isOnline, bool forcarSync) {
     if (mounted) {
       setState(() {
         _isOnline = isOnline;
       });
+      
+      // Opcional: você pode usar o forcarSync aqui se precisar
+      if (forcarSync) {
+        print('🔄 Sync completo será forçado');
+      }
     }
   }
 
@@ -48,13 +54,13 @@ class _ConectividadeIndicatorState extends State<ConectividadeIndicator> {
           height: 36,
           decoration: BoxDecoration(
             color: _isOnline 
-                ? Colors.green.withOpacity(0.1) 
-                : Colors.red.withOpacity(0.1),
+                ? Colors.white.withOpacity(0.1) 
+                : Colors.black.withOpacity(0.1),
             shape: BoxShape.circle,
           ),
           child: Icon(
             _isOnline ? Icons.wifi : Icons.wifi_off,
-            color: _isOnline ? Colors.green : Colors.red,
+            color: _isOnline ? Colors.white : Colors.black,
             size: 20,
           ),
         ),
@@ -101,6 +107,15 @@ class _ConectividadeIndicatorState extends State<ConectividadeIndicator> {
                 'Última mudança:',
                 _formatarTempo(service.ultimaMudanca!),
                 Colors.grey,
+              ),
+            ],
+            // 🔥 NOVO: Mostrar última sync completa
+            if (service.ultimaSyncCompleta != null) ...[
+              const SizedBox(height: 8),
+              _buildInfoRow(
+                'Última sync:',
+                _formatarTempo(service.ultimaSyncCompleta!),
+                Colors.blue,
               ),
             ],
             if (!service.isOnline) ...[
@@ -183,7 +198,7 @@ class _ConectividadeIndicatorState extends State<ConectividadeIndicator> {
     } else if (diferenca.inHours < 24) {
       return 'Há ${diferenca.inHours}h';
     } else {
-      return '${tempo.day}/${tempo.month} ${tempo.hour}:${tempo.minute}';
+      return '${tempo.day}/${tempo.month} ${tempo.hour}:${tempo.minute.toString().padLeft(2, '0')}';
     }
   }
 }

@@ -16,6 +16,7 @@ import '../services/sessao_service.dart';
 import '../widgets/estoque_alerta_popup.dart';
 import '../widgets/cached_produto_image.dart';
 import '../widgets/conectividade_indicator.dart';
+import '../services/conectividade_service.dart';
 
 
 
@@ -104,15 +105,19 @@ Future<void> _sincronizarSeNecessario() async {
   final ultimaSync = _syncService.lastSyncTime;
   final agora = DateTime.now();
   
-  // Sincronizar apenas se passou mais de 5 minutos
+  // 🔥 CRÍTICO: Só sincronizar se passou 5+ minutos
   if (ultimaSync == null || 
       agora.difference(ultimaSync).inMinutes > 5) {
     print('⏱️ Última sync há ${ultimaSync != null ? agora.difference(ultimaSync).inMinutes : "∞"} min - sincronizando...');
     await _syncService.sincronizarSeletivo(sincronizarMovimentos: false);
+    
+    // 🔥 NOVO: Marcar que foi feita uma sync
+    ConectividadeService.instance.marcarSyncCompleta();
   } else {
-    print('✅ Dados recentes - usando cache local');
+    print('✅ Dados recentes (última sync há ${agora.difference(ultimaSync).inMinutes}min) - usando cache local');
   }
 }
+
 
  Future<void> _atualizarContadorPedidos() async {
   try {

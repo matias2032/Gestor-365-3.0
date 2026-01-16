@@ -6,6 +6,8 @@ import '../services/base_de_dados.dart';
 import '../screens/detalhes_usuario.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
+import '../widgets/conectividade_indicator.dart';
+
 
 enum StatusFiltro {
   todos,
@@ -91,6 +93,7 @@ class _UsuarioListScreenState extends State<UsuarioListScreen> {
         title: Text('Usuários (${_getFiltroLabel(_filtroAtual)})'),
         backgroundColor: Colors.deepOrange,
         actions: [
+           const ConectividadeIndicator(), 
           ThemeToggleWidget(showLabel: false),
           
           PopupMenuButton<StatusFiltro>(

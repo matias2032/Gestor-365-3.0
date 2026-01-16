@@ -38,6 +38,9 @@ import 'screens/logs.dart';
 import 'screens/movimentos_estoque.dart';
 import 'screens/primeira_troca_senha.dart';
 import 'screens/corrigir_imagens_screen.dart';
+import 'services/conectividade_service.dart';
+import 'widgets/conectividade_dialog.dart';
+import 'widgets/conectividade_indicator.dart';
 
 // 🔥 HANDLER BACKGROUND (TOP-LEVEL)
 @pragma('vm:entry-point')
@@ -87,11 +90,8 @@ class AppLifecycleObserver extends WidgetsBindingObserver {
     print('🔄 Lifecycle: $state');
     
     if (state == AppLifecycleState.resumed) {
-      // App voltou ao foreground - atualizar timestamp
       SessaoService.instance.marcarAppAtivo();
     }
-    // Não marcamos encerramento - o Android pode matar sem avisar
-    // A detecção de task removal é feita pela lógica de "primeiro acesso"
   }
 }
 
@@ -104,21 +104,130 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
+// 🔥 ADICIONAR NOVA CLASSE: Listener Global de Conectividade
+class ConectividadeListener {
+  static bool _dialogAberto = false;
+  
+  static void inicializar(BuildContext context) {
+    ConectividadeService.instance.addListener((isOnline) {
+      _onConnectivityChange(context, isOnline);
+    });
+  }
+  
+  static void _onConnectivityChange(BuildContext context, bool isOnline) {
+    final service = ConectividadeService.instance;
+    
+    // Se voltou ONLINE
+    if (isOnline) {
+      _mostrarSnackBar(
+        context,
+        'Conexão restaurada! Dados serão sincronizados.',
+        Colors.green,
+        Icons.wifi,
+      );
+      _dialogAberto = false;
+      return;
+    }
+    
+    // Se ficou OFFLINE
+    // Só mostrar dialog se:
+    // 1. Não estiver em modo offline manual
+    // 2. Não houver dialog já aberto
+    // 3. Não estiver na splash screen
+    final rotaAtual = ModalRoute.of(context)?.settings.name;
+    
+    if (!service.modoOfflineManual && 
+        !_dialogAberto && 
+        rotaAtual != '/splash') {
+      _dialogAberto = true;
+      
+      ConectividadeDialog.mostrar(
+        context,
+        isPreSplash: false,
+        onReconectar: () async {
+          _dialogAberto = false;
+          
+          // Revalidar sessão em background
+          if (SessaoService.instance.isLogado) {
+            final sessaoValida = await SessaoService.instance.validarSessao();
+            
+            if (!sessaoValida && context.mounted) {
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                '/',
+                (route) => false,
+              );
+            }
+          }
+        },
+        onContinuarOffline: () {
+          _dialogAberto = false;
+          _mostrarSnackBar(
+            context,
+            'Modo offline ativado. Funcionalidades limitadas.',
+            Colors.orange,
+            Icons.airplanemode_active,
+          );
+        },
+      ).then((_) {
+        _dialogAberto = false;
+      });
+    }
+  }
+  
+  static void _mostrarSnackBar(
+    BuildContext context,
+    String mensagem,
+    Color cor,
+    IconData icone,
+  ) {
+    if (!context.mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icone, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                mensagem,
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: cor,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+  }
+}
+
 class _MyAppState extends State<MyApp> {
   late final AppLifecycleObserver _lifecycleObserver;
   
   @override
   void initState() {
     super.initState();
-    // 🔥 Registrar observer
     _lifecycleObserver = AppLifecycleObserver();
     WidgetsBinding.instance.addObserver(_lifecycleObserver);
+    
+    // 🔥 NOVO: Aguardar primeiro frame para inicializar listener
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ConectividadeListener.inicializar(context);
+      }
+    });
   }
   
   @override
   void dispose() {
-    // 🔥 Remover observer
     WidgetsBinding.instance.removeObserver(_lifecycleObserver);
+    ConectividadeService.instance.dispose();
     super.dispose();
   }
 

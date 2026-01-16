@@ -15,6 +15,8 @@ import '../services/supabase_sync_service.dart';
 import '../services/sessao_service.dart';
 import '../widgets/estoque_alerta_popup.dart';
 import '../widgets/cached_produto_image.dart';
+import '../widgets/conectividade_indicator.dart';
+
 
 
 class MenuScreen extends StatefulWidget {
@@ -461,6 +463,7 @@ Widget build(BuildContext context) {
           backgroundColor: Colors.deepOrange,
           elevation: 4,
           actions: [
+             const ConectividadeIndicator(), 
             ThemeToggleWidget(showLabel: false),
             IconButton(
               icon: AnimatedSwitcher(

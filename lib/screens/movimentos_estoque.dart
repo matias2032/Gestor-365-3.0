@@ -8,6 +8,8 @@ import '../services/servico_movimento_estoque.dart';
 import '../models/movimento_estoque.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
+import '../widgets/conectividade_indicator.dart';
+
 
 class MovimentosEstoqueScreen extends StatefulWidget {
   const MovimentosEstoqueScreen({super.key});
@@ -90,6 +92,7 @@ class _MovimentosEstoqueScreenState extends State<MovimentosEstoqueScreen> {
         title: const Text('Movimentos de Estoque'),
         backgroundColor: Colors.deepOrange,
         actions: [
+          const ConectividadeIndicator(),
           ThemeToggleWidget(showLabel: false),
           IconButton(
             icon: const Icon(Icons.refresh),

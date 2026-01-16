@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../services/base_de_dados.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
+import '../widgets/conectividade_indicator.dart';
+
 
 enum TipoFiltroLog {
   todos,
@@ -189,6 +191,7 @@ class _LogsScreenState extends State<LogsScreen> {
         title: Text('Logs do Sistema (${_getFiltroLabel(_filtroAtual)})'),
         backgroundColor: Colors.deepOrange,
         actions: [
+          const ConectividadeIndicator(),
           ThemeToggleWidget(showLabel: false),
           PopupMenuButton<TipoFiltroLog>(
             icon: Icon(_getFiltroIcon(_filtroAtual)),

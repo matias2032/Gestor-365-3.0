@@ -6,6 +6,8 @@ import '../services/base_de_dados.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
 import '../services/supabase_sync_service.dart';
+import '../widgets/conectividade_indicator.dart';
+
 
 
 class GerenciarCategoriasScreen extends StatefulWidget {
@@ -110,9 +112,11 @@ Future<void> _excluirCategoria(int id, String nome) async {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        
         title: const Text('Gerenciar Categorias'),
         backgroundColor:  Colors.deepOrange,
         actions: [
+          const ConectividadeIndicator(),
           ThemeToggleWidget(showLabel: false),
           // Botão Recarregar (mantido)
           IconButton(

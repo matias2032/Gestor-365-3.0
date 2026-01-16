@@ -7,6 +7,7 @@ import '../services/base_de_dados.dart';
 import '../services/servico_logs.dart';
 import '../services/supabase_sync_service.dart';
 
+
 class CadastrarCategoriaScreen extends StatefulWidget {
   const CadastrarCategoriaScreen({super.key});
 

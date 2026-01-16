@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import '../models/produto.dart';
 import '../services/supabase_sync_service.dart'; // 🔥 MUDOU
 import 'package:collection/collection.dart';
-import 'dart:io';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
 import '../services/estoque_alerta_service.dart';
-import '../services/base_de_dados.dart';
 import '../widgets/cached_produto_image.dart';
+import '../widgets/conectividade_indicator.dart';
+
 
 
 class GerenciarProdutosScreen extends StatefulWidget {
@@ -154,6 +154,7 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
         title: const Text('Gerenciar Produtos'),
         backgroundColor: Colors.deepOrange,
         actions: [
+           const ConectividadeIndicator(), 
           ThemeToggleWidget(showLabel: false),
           IconButton(
             icon: const Icon(Icons.add_box),

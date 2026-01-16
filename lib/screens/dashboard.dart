@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../widgets/app_sidebar.dart';
 import '../services/base_de_dados.dart';
 import '../widgets/estoque_alerta_popup.dart';
+import '../widgets/conectividade_indicator.dart';
 
 
 class DashboardVendasScreen extends StatefulWidget {
@@ -141,6 +142,7 @@ Widget build(BuildContext context) {
           title: const Text('Dashboard de Vendas'),
           backgroundColor: Colors.deepOrange,
           actions: [
+             const ConectividadeIndicator(), 
             IconButton(
               icon: const Icon(Icons.analytics_outlined),
               onPressed: () => _mostrarAnaliseDetalhada(context),

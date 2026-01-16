@@ -10,6 +10,8 @@ import '../widgets/theme_toggle_widget.dart';
 import '../models/produto.dart';      // 🔥 NOVO
 import '../models/produto_imagem.dart'; // 🔥 NOVO
 import 'dart:io';
+import '../widgets/conectividade_indicator.dart';
+
 
 enum PeriodoFiltro {
   hoje,
@@ -249,6 +251,7 @@ Future<List<ItemPedido>> _loadItensPedido(int idPedido) async {
         title: Text('Histórico (${_getFiltroLabel(_filtroAtual)})'),
         backgroundColor: Colors.deepOrange,
         actions: [
+           const ConectividadeIndicator(), 
           ThemeToggleWidget(showLabel: false),
           PopupMenuButton<PeriodoFiltro>(
             icon: const Icon(Icons.filter_list),

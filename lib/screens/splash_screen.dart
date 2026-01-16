@@ -16,6 +16,8 @@ import '../services/estoque_alerta_service.dart';
 import '../providers/theme_provider.dart';
 import 'package:gestao_bar_pos/firebase_options.dart';
 import '../services/push_notification_service.dart';
+import '../services/conectividade_service.dart';
+import '../widgets/conectividade_dialog.dart';
 
 // Telas
 import 'tela_login.dart';
@@ -82,108 +84,141 @@ class _SplashScreenState extends State<SplashScreen>
     _controller.forward();
   }
 
-  Future<void> _initializeApp() async {
+Future<void> _initializeApp() async {
   try {
-    // 1️⃣ Verificar Conectividade (8%)
-    await _updateProgress(0.08, 'Verificando conexão...');
-    final connectivity = await Connectivity().checkConnectivity();
-    final isOnline = !connectivity.contains(ConnectivityResult.none);
+    // 1️⃣ Inicializar Serviço de Conectividade (5%)
+    await _updateProgress(0.05, 'Verificando conexão...');
+    await ConectividadeService.instance.inicializar();
+    final isOnline = ConectividadeService.instance.isOnline;
+    print('🌐 Conectividade: ${isOnline ? "ONLINE" : "OFFLINE"}');
     await Future.delayed(const Duration(milliseconds: 300));
 
-    // 2️⃣ Inicializar Timezone (15%)
-    await _updateProgress(0.15, 'Configurando fuso horário...');
-    tz.initializeTimeZones();
-    tz.setLocalLocation(tz.getLocation('Africa/Maputo'));
-    await Future.delayed(const Duration(milliseconds: 200));
-
-    // 3️⃣ Inicializar Supabase (30%)
-    await _updateProgress(0.30, 'Conectando ao servidor...');
-    await Supabase.initialize(
-      url: 'https://uwwzjvovxisakkugzxsh.supabase.co',
-      anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3d3pqdm92eGlzYWtrdWd6eHNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMjkzMjMsImV4cCI6MjA4MTcwNTMyM30.E3qQ0oxLTLcPphUdHTZmUtjIgzQD651aS8ZxstVvc_Y',
-    );
-    print('✅ Supabase inicializado');
-    await Future.delayed(const Duration(milliseconds: 400));
-
-    // 4️⃣ Inicializar Firebase/FCM (40%)
-    await _updateProgress(0.40, 'Configurando notificações push...');
-    try {
-      await PushNotificationService.instance.inicializar();
-      print('✅ FCM inicializado');
-    } catch (e) {
-      print('⚠️ FCM não disponível: $e');
-    }
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    // 5️⃣ Inicializar Banco de Dados Local (55%)
-    await _updateProgress(0.55, 'Preparando banco de dados...');
-    await DatabaseService.instance.database;
-    print('📦 Banco de dados pronto');
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    // 6️⃣ Inicializar Serviço de Sincronização (70%)
-    await _updateProgress(0.70, 
-      isOnline ? 'Sincronizando dados...' : 'Modo offline ativado');
-    
-    if (isOnline) {
-      try {
-        await SupabaseSyncService.instance.initialize();
-        print('✅ Sincronização inicializada');
-      } catch (e) {
-        print('⚠️ Erro ao sincronizar: $e');
+    // 🔥 NOVO: Se offline, mostrar dialog APÓS animação da splash
+    if (!isOnline && mounted) {
+      await _controller.forward(); // Garantir que animação termine
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      if (mounted) {
+        await ConectividadeDialog.mostrar(
+          context,
+          isPreSplash: true,
+          onReconectar: () {
+            // Reiniciar splash
+            setState(() {
+              _hasError = false;
+              _progress = 0.0;
+            });
+            _initializeApp();
+          },
+          onContinuarOffline: () {
+            // Continuar inicialização em modo offline
+            _continuarInicializacao(isOnline: false);
+          },
+        );
+        return; // Interromper fluxo até utilizador decidir
       }
     }
-    await Future.delayed(const Duration(milliseconds: 400));
 
-    // 7️⃣ Inicializar Tema (80%)
-    await _updateProgress(0.80, 'Carregando preferências...');
-    await ThemeProvider().initTheme();
-    await Future.delayed(const Duration(milliseconds: 200));
-
-    // 8️⃣ Inicializar Notificações Locais (87%)
-    await _updateProgress(0.87, 'Configurando alertas...');
-    await NotificacaoEstoqueService.instance.inicializar();
-    await EstoqueAlertaService.instance.inicializar();
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    // 9️⃣ 🔥 MODIFICADO: Verificar Sessão COM VALIDAÇÃO
-    await _updateProgress(0.95, 'Verificando sessão...');
-    await SessaoService.instance.inicializarSessao();
+    // Se online OU se utilizador escolheu continuar offline
+    await _continuarInicializacao(isOnline: isOnline);
     
-    // 🔥 NOVO: Validar se a sessão ainda é válida
-    bool sessaoValida = false;
-    if (SessaoService.instance.isLogado) {
-      sessaoValida = await SessaoService.instance.validarSessao();
-      if (!sessaoValida) {
-        print('⚠️ Sessão inválida detectada - requer novo login');
-      }
-    }
-    
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    // 🔟 Finalizar (100%)
-    await _updateProgress(1.0, sessaoValida ? 'Bem-vindo de volta! 🎉' : 'Pronto! 🎉');
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    // 🚀 Navegar
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => sessaoValida
-              ? const DashboardVendasScreen()
-              : const LoginScreen(),
-          transitionsBuilder: (_, animation, __, child) =>
-              FadeTransition(opacity: animation, child: child),
-          transitionDuration: const Duration(milliseconds: 600),
-        ),
-      );
-    }
   } catch (e, stackTrace) {
     setState(() {
       _hasError = true;
       _errorMessage = 'Erro ao inicializar o aplicativo';
     });
     print('❌ Erro: $e\n$stackTrace');
+  }
+}
+
+// 🔥 NOVO MÉTODO: Continuar inicialização
+Future<void> _continuarInicializacao({required bool isOnline}) async {
+  // 2️⃣ Inicializar Timezone (15%)
+  await _updateProgress(0.15, 'Configurando fuso horário...');
+  tz.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Africa/Maputo'));
+  await Future.delayed(const Duration(milliseconds: 200));
+
+  // 3️⃣ Inicializar Supabase (30%)
+  await _updateProgress(0.30, 'Conectando ao servidor...');
+  await Supabase.initialize(
+    url: 'https://uwwzjvovxisakkugzxsh.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3d3pqdm92eGlzYWtrdWd6eHNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMjkzMjMsImV4cCI6MjA4MTcwNTMyM30.E3qQ0oxLTLcPphUdHTZmUtjIgzQD651aS8ZxstVvc_Y',
+  );
+  print('✅ Supabase inicializado');
+  await Future.delayed(const Duration(milliseconds: 400));
+
+  // 4️⃣ Inicializar Firebase/FCM (40%)
+  await _updateProgress(0.40, 'Configurando notificações push...');
+  try {
+    await PushNotificationService.instance.inicializar();
+    print('✅ FCM inicializado');
+  } catch (e) {
+    print('⚠️ FCM não disponível: $e');
+  }
+  await Future.delayed(const Duration(milliseconds: 300));
+
+  // 5️⃣ Inicializar Banco de Dados Local (55%)
+  await _updateProgress(0.55, 'Preparando banco de dados...');
+  await DatabaseService.instance.database;
+  print('📦 Banco de dados pronto');
+  await Future.delayed(const Duration(milliseconds: 300));
+
+  // 6️⃣ Inicializar Serviço de Sincronização (70%)
+  await _updateProgress(0.70, 
+    isOnline ? 'Sincronizando dados...' : 'Modo offline ativado');
+  
+  if (isOnline) {
+    try {
+      await SupabaseSyncService.instance.initialize();
+      print('✅ Sincronização inicializada');
+    } catch (e) {
+      print('⚠️ Erro ao sincronizar: $e');
+    }
+  }
+  await Future.delayed(const Duration(milliseconds: 400));
+
+  // 7️⃣ Inicializar Tema (80%)
+  await _updateProgress(0.80, 'Carregando preferências...');
+  await ThemeProvider().initTheme();
+  await Future.delayed(const Duration(milliseconds: 200));
+
+  // 8️⃣ Inicializar Notificações Locais (87%)
+  await _updateProgress(0.87, 'Configurando alertas...');
+  await NotificacaoEstoqueService.instance.inicializar();
+  await EstoqueAlertaService.instance.inicializar();
+  await Future.delayed(const Duration(milliseconds: 300));
+
+  // 9️⃣ Verificar Sessão COM VALIDAÇÃO
+  await _updateProgress(0.95, 'Verificando sessão...');
+  await SessaoService.instance.inicializarSessao();
+  
+  bool sessaoValida = false;
+  if (SessaoService.instance.isLogado) {
+    sessaoValida = await SessaoService.instance.validarSessao();
+    if (!sessaoValida) {
+      print('⚠️ Sessão inválida detectada - requer novo login');
+    }
+  }
+  
+  await Future.delayed(const Duration(milliseconds: 300));
+
+  // 🔟 Finalizar (100%)
+  await _updateProgress(1.0, sessaoValida ? 'Bem-vindo de volta! 🎉' : 'Pronto! 🎉');
+  await Future.delayed(const Duration(milliseconds: 800));
+
+  // 🚀 Navegar
+  if (mounted) {
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => sessaoValida
+            ? const DashboardVendasScreen()
+            : const LoginScreen(),
+        transitionsBuilder: (_, animation, __, child) =>
+            FadeTransition(opacity: animation, child: child),
+        transitionDuration: const Duration(milliseconds: 600),
+      ),
+    );
   }
 }
 

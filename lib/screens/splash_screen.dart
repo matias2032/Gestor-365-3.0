@@ -148,15 +148,19 @@ Future<void> _continuarInicializacao({required bool isOnline}) async {
   print('✅ Supabase inicializado');
   await Future.delayed(const Duration(milliseconds: 400));
 
-  // 4️⃣ Inicializar Firebase/FCM (40%)
-  await _updateProgress(0.40, 'Configurando notificações push...');
+// 4️⃣ Inicializar Firebase/FCM (40%) - CONDICIONALMENTE
+await _updateProgress(0.40, 'Configurando notificações push...');
+if (isOnline) {
   try {
     await PushNotificationService.instance.inicializar();
     print('✅ FCM inicializado');
   } catch (e) {
     print('⚠️ FCM não disponível: $e');
   }
-  await Future.delayed(const Duration(milliseconds: 300));
+} else {
+  print('⏭️ FCM pulado (modo offline)');
+}
+await Future.delayed(const Duration(milliseconds: 300));
 
   // 5️⃣ Inicializar Banco de Dados Local (55%)
   await _updateProgress(0.55, 'Preparando banco de dados...');

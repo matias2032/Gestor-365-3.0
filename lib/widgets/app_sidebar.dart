@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../services/sessao_service.dart';
 import '../services/pedido_contador_service.dart';
-import '../widgets/theme_toggle_widget.dart';
+// import '../widgets/theme_toggle_widget.dart';
 import '../services/servico_logs.dart';
 import '../widgets/estoque_badge.dart';
 
@@ -135,8 +135,8 @@ Future<void> _carregarContadorDoUsuario() async {
                   title: 'Dashboard',
                   route: '/dashboard',
                 ),
-                const Divider(),
-                ThemeToggleWidget(showLabel: true),
+                // const Divider(),
+                // ThemeToggleWidget(showLabel: true),
                  
                 // 🔥 CONTROLE DE ACESSO: Criar Pedido (Funcionário e Admin)
                 if (_temPermissao('/menu'))

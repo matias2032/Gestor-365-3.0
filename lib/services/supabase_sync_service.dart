@@ -94,30 +94,54 @@ class SupabaseSyncService {
 
 
 
-  Future<void> initialize({String? estabelecimentoId}) async {
-    try {
-      print('🔄 Inicializando Supabase Sync Service...');
+ Future<void> initialize({String? estabelecimentoId}) async {
+  try {
+    print('🔄 Inicializando Supabase Sync Service...');
+    
+    _estabelecimentoId = estabelecimentoId;
+    _deviceId = await _getOrCreateDeviceId();
+    await _loadLastSyncTime();
+    
+    // ✅ CARREGAR E VALIDAR FILA OFFLINE
+    await _loadOfflineQueue();
+    await validarFilaOffline();
+    
+    // ✅ PROCESSAR FILA SE HOUVER OPERAÇÕES PENDENTES
+    if (_offlineQueue.isNotEmpty) {
+      print('📤 ${_offlineQueue.length} operações offline detectadas');
       
-      _estabelecimentoId = estabelecimentoId;
-      _deviceId = await _getOrCreateDeviceId();
-      await _loadOfflineQueue();
-      await _loadLastSyncTime();
-      _setupConnectivityListener();
-      
-      // 🔥 COMENTADO: Listeners Realtime causam problemas sem estabelecimento_id
-      _setupRealtimeListeners();
-
-      
-
-      // Sincronização inicial
-      await syncAll();
-
-      print('✅ Supabase Sync Service inicializado!');
-    } catch (e) {
-      print('❌ Erro ao inicializar: $e');
-      _updateStatus(SyncStatus.error);
+      if (_isOnline) {
+        print('🌐 Online - processando fila...');
+        await syncOfflineQueue();
+      } else {
+        print('📵 Offline - fila será processada quando conectar');
+      }
+    } else {
+      print('✅ Nenhuma operação offline pendente');
     }
+    
+    // ✅ CONFIGURAR LISTENERS DEPOIS DA FILA
+    _setupConnectivityListener();
+    _setupRealtimeListeners();
+    
+    // ✅ SINCRONIZAÇÃO INICIAL (SE ONLINE E FILA VAZIA)
+    if (_isOnline && _offlineQueue.isEmpty) {
+      print('🔄 Iniciando sincronização completa...');
+      await syncAll();
+    } else if (_isOnline && _offlineQueue.isNotEmpty) {
+      print('⏭️ Sincronização completa adiada (fila ainda processando)');
+    }
+
+    print('✅ Supabase Sync Service inicializado!');
+    _updateStatus(SyncStatus.success);
+    
+  } catch (e) {
+    print('❌ Erro ao inicializar: $e');
+    print('   Stack trace: ${StackTrace.current}');
+    _updateStatus(SyncStatus.error);
+    _emitError('Erro na inicialização: $e');
   }
+}
 
   Future<String> _getOrCreateDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -143,21 +167,77 @@ class SupabaseSyncService {
   // CONECTIVIDADE
   // ==========================================
 
-  void _setupConnectivityListener() {
-    Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) async {
-      final wasOffline = !_isOnline;
-      _isOnline = results.isNotEmpty && !results.contains(ConnectivityResult.none);
+void _setupConnectivityListener() {
+  print('🔧 Configurando listener de conectividade...');
+  
+  Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) async {
+    final wasOffline = !_isOnline;
+    _isOnline = results.isNotEmpty && !results.contains(ConnectivityResult.none);
 
-      if (_isOnline && wasOffline) {
-        print('🌐 Conexão restaurada! Sincronizando...');
-        await syncOfflineQueue();
-        await syncAll();
-      } else if (!_isOnline) {
-        print('📵 Modo offline ativado');
-        _updateStatus(SyncStatus.offline);
+    // ==========================================
+    // VOLTOU ONLINE
+    // ==========================================
+    if (_isOnline && wasOffline) {
+      print('🌐 Conexão restaurada! Iniciando sincronização...');
+      
+      // 🔥 AGUARDAR 2 SEGUNDOS para estabilizar conexão
+      await Future.delayed(const Duration(seconds: 2));
+      
+      // 1️⃣ PROCESSAR FILA OFFLINE PRIMEIRO
+      if (_offlineQueue.isNotEmpty) {
+        print('📤 Processando ${_offlineQueue.length} operações offline...');
+        
+        try {
+          await syncOfflineQueue();
+          print('✅ Fila offline processada');
+        } catch (e) {
+          print('❌ Erro ao processar fila: $e');
+        }
       }
-    });
-  }
+      
+      // 2️⃣ SINCRONIZAÇÃO COMPLETA (apenas se fila vazia)
+      if (_offlineQueue.isEmpty && _isOnline) {
+        print('🔄 Iniciando sincronização completa...');
+        
+        try {
+          await syncAll();
+          print('✅ Sincronização completa concluída');
+          _updateStatus(SyncStatus.success);
+        } catch (e) {
+          print('❌ Erro na sync completa: $e');
+          _updateStatus(SyncStatus.error);
+        }
+      } else if (_offlineQueue.isNotEmpty) {
+        print('⏭️ Sincronização completa adiada (${_offlineQueue.length} ops pendentes)');
+        _updateStatus(SyncStatus.syncing);
+        
+        // 🔥 RETRY: Tentar novamente após 5 segundos
+        Future.delayed(const Duration(seconds: 5), () async {
+          if (_offlineQueue.isEmpty && _isOnline) {
+            print('🔄 Retentativa de sync completa...');
+            try {
+              await syncAll();
+              _updateStatus(SyncStatus.success);
+            } catch (e) {
+              print('❌ Erro na retentativa: $e');
+              _updateStatus(SyncStatus.error);
+            }
+          }
+        });
+      }
+    }
+    
+    // ==========================================
+    // FICOU OFFLINE
+    // ==========================================
+    else if (!_isOnline && wasOffline == false) {
+      print('📵 Modo offline ativado');
+      _updateStatus(SyncStatus.offline);
+    }
+  });
+  
+  print('✅ Listener de conectividade configurado');
+}
 
   
 
@@ -765,32 +845,37 @@ Future<void> _syncMovimentosEstoque() async {
 // SUBSTITUA o método createProduto completo:
 
 Future<int> createProduto(
-    Produto produto,
-    List<int> idsCategorias,
-    List<ProdutoImagem> imagens,
-  ) async {
-    if (_isOnline) {
-      try {
-        // 🔥 NOVO: Fazer upload das imagens ANTES de criar o produto
-        final imagensComUrl = <ProdutoImagem>[];
-        
-        for (final imagem in imagens) {
-          String? caminhoFinal = imagem.caminho;
-          
-          // Se for caminho local, fazer upload
-          if (!_storageService.isSupabaseUrl(imagem.caminho)) {
-            final urlPublica = await _storageService.uploadImagem(imagem.caminho);
-            
-            if (urlPublica != null) {
-              caminhoFinal = urlPublica;
-              print('✅ Upload: ${imagem.caminho} → $urlPublica');
-            } else {
-              print('⚠️ Falha no upload de ${imagem.caminho}, mantendo caminho local');
-            }
-          }
-          
-          imagensComUrl.add(imagem.copyWith(caminho: caminhoFinal));
+  Produto produto,
+  List<int> idsCategorias,
+  List<ProdutoImagem> imagens,
+) async {
+  if (_isOnline) {
+    try {
+      // ✅ VALIDAR IMAGENS ANTES DO UPLOAD
+      final imagensComUrl = <ProdutoImagem>[];
+      
+      for (final imagem in imagens) {
+        // 🔥 VALIDAÇÃO: Verificar se caminho não é null/vazio
+        if (imagem.caminho.isEmpty) {
+          print('⚠️ Imagem sem caminho - ignorando');
+          continue;
         }
+        
+        String? caminhoFinal = imagem.caminho;
+        
+        if (!_storageService.isSupabaseUrl(imagem.caminho)) {
+          final urlPublica = await _storageService.uploadImagem(imagem.caminho);
+          
+          if (urlPublica != null && urlPublica.isNotEmpty) {
+            caminhoFinal = urlPublica;
+            print('✅ Upload: ${imagem.caminho} → $urlPublica');
+          } else {
+            print('⚠️ Falha no upload - usando caminho local');
+          }
+        }
+        
+        imagensComUrl.add(imagem.copyWith(caminho: caminhoFinal));
+      }
 
         // 1. Inserir produto no Supabase
         final response = await _supabase.from('produtos').insert({
@@ -894,32 +979,24 @@ Future<int> updateProduto(
     imagensComUrl.add(imagem.copyWith(caminho: caminhoFinal));
   }
   
-  // 1. Atualizar localmente COM URLS
+  // 1. Atualizar localmente PRIMEIRO
   final result = await _localDb.updateProduto(produto, idsCategorias, imagensComUrl);
 
   // 2. Sincronizar com Supabase
   if (_isOnline && produto.id != null) {
     try {
-      await _supabase
-          .from('produtos')
-          .update({
-            'nome_produto': produto.nome,
-            'descricao': produto.descricao,
-            'preco': produto.preco,
-            'preco_promocional': produto.precoPromocional,
-            'quantidade_estoque': produto.quantidadeEstoque,
-            'ativo': produto.ativo,
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-            'device_id': _deviceId, // 🔥 ADICIONAR device_id
-          })
-          .eq('id_produto', produto.id!);
+      await _supabase.from('produtos').update({
+        'nome_produto': produto.nome,
+        'descricao': produto.descricao,
+        'preco': produto.preco,
+        'preco_promocional': produto.precoPromocional,
+        'quantidade_estoque': produto.quantidadeEstoque,
+        'ativo': produto.ativo,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'device_id': _deviceId,
+      }).eq('id_produto', produto.id!);
       
-      // Atualizar categorias
-      await _supabase
-          .from('produto_categoria')
-          .delete()
-          .eq('id_produto', produto.id!);
-      
+      await _supabase.from('produto_categoria').delete().eq('id_produto', produto.id!);
       for (final idCategoria in idsCategorias) {
         await _supabase.from('produto_categoria').insert({
           'id_produto': produto.id!,
@@ -927,12 +1004,7 @@ Future<int> updateProduto(
         });
       }
       
-      // Atualizar imagens
-      await _supabase
-          .from('produto_imagem')
-          .delete()
-          .eq('id_produto', produto.id!);
-      
+      await _supabase.from('produto_imagem').delete().eq('id_produto', produto.id!);
       for (final imagem in imagensComUrl) {
         await _supabase.from('produto_imagem').insert({
           'id_produto': produto.id!,
@@ -944,37 +1016,59 @@ Future<int> updateProduto(
       
       print('✅ Produto ${produto.id} atualizado no Supabase');
       
-      // 🔥 REMOVER: Não sincronizar novamente (listener fará isso)
-      // await _syncProdutosEspecificos([produto.id!]);
-      
     } catch (e) {
       print('⚠️ Erro ao sincronizar atualização: $e');
+      // 🔥 ADICIONAR À FILA OFFLINE
+      _addToOfflineQueue(OfflineOperation(
+        type: 'update_produto',
+        data: {
+          'produto': produto.toMap(),
+          'categorias': idsCategorias,
+          'imagens': imagensComUrl.map((i) => i.toMap()).toList(),
+        },
+        timestamp: DateTime.now(),
+      ));
     }
+  } else if (!_isOnline) {
+    // 🔥 MODO OFFLINE
+    _addToOfflineQueue(OfflineOperation(
+      type: 'update_produto',
+      data: {
+        'produto': produto.toMap(),
+        'categorias': idsCategorias,
+        'imagens': imagensComUrl.map((i) => i.toMap()).toList(),
+      },
+      timestamp: DateTime.now(),
+    ));
   }
 
   return result;
 }
 
- Future<int> deleteProduto(int idProduto) async {
-  // 1. Deletar localmente
+Future<int> deleteProduto(int idProduto) async {
+  // 1. Deletar localmente PRIMEIRO
   final result = await _localDb.deleteProduto(idProduto);
 
   // 2. Sincronizar com Supabase
   if (_isOnline) {
     try {
-      await _supabase
-          .from('produtos')
-          .delete()
-          .eq('id_produto', idProduto);
-      
+      await _supabase.from('produtos').delete().eq('id_produto', idProduto);
       print('✅ Produto $idProduto deletado do Supabase');
-      
-      // 🔥 REMOVER: Não sincronizar após deletar
-      // (o listener detectará a exclusão)
       
     } catch (e) {
       print('⚠️ Erro ao sincronizar exclusão: $e');
+      _addToOfflineQueue(OfflineOperation(
+        type: 'delete_produto',
+        data: {'id_produto': idProduto},
+        timestamp: DateTime.now(),
+      ));
     }
+  } else {
+    _addToOfflineQueue(OfflineOperation(
+      type: 'delete_produto',
+      data: {'id_produto': idProduto},
+      timestamp: DateTime.now(),
+    ));
   }
 
   return result;
@@ -982,7 +1076,7 @@ Future<int> updateProduto(
 
 
 Future<int> toggleAtivoProduto(int idProduto, bool isActive) async {
-  // 1. Atualizar localmente
+  // 1. Atualizar localmente PRIMEIRO
   final result = await _localDb.toggleAtivoProduto(idProduto, isActive);
   
   // 2. Sincronizar com Supabase
@@ -999,11 +1093,10 @@ Future<int> toggleAtivoProduto(int idProduto, bool isActive) async {
       
       print('✅ Status do produto $idProduto atualizado no Supabase');
       
-      // 🔥 NOVO: Sincronizar apenas este produto
-      await _syncProdutosEspecificos([idProduto]);
-      
     } catch (e) {
       print('⚠️ Erro ao sincronizar status: $e');
+      
+      // 🔥 ADICIONAR À FILA OFFLINE
       _addToOfflineQueue(OfflineOperation(
         type: 'toggle_ativo_produto',
         data: {
@@ -1014,6 +1107,7 @@ Future<int> toggleAtivoProduto(int idProduto, bool isActive) async {
       ));
     }
   } else {
+    // 3. Se OFFLINE, adicionar à fila
     _addToOfflineQueue(OfflineOperation(
       type: 'toggle_ativo_produto',
       data: {
@@ -1042,20 +1136,17 @@ Future<int> toggleAtivoProduto(int idProduto, bool isActive) async {
  // lib/services/supabase_sync_service.dart
 
 Future<int> createCategoria(Categoria categoria, List<int> idsProdutos) async {
-  // Se ONLINE: Criar no Supabase PRIMEIRO
   if (_isOnline) {
     try {
-      // 1. Inserir categoria no Supabase (SEM id_categoria)
-   final response = await _supabase.from('categorias').insert({
-  'nome_categoria': categoria.nome,
-  'descricao': categoria.descricao,
-  'device_id': _deviceId, // 🔥 ADICIONAR ESTA LINHA
-}).select().single();
+      final response = await _supabase.from('categorias').insert({
+        'nome_categoria': categoria.nome,
+        'descricao': categoria.descricao,
+        'device_id': _deviceId,
+      }).select().single();
 
       final idSupabase = response['id_categoria'] as int;
       print('✅ Categoria criada no Supabase com ID: $idSupabase');
       
-      // 2. Inserir associações produto_categoria no Supabase
       if (idsProdutos.isNotEmpty) {
         for (final idProduto in idsProdutos) {
           await _supabase.from('produto_categoria').insert({
@@ -1065,7 +1156,6 @@ Future<int> createCategoria(Categoria categoria, List<int> idsProdutos) async {
         }
       }
       
-      // 3. Criar localmente COM ID DO SUPABASE
       final categoriaComId = categoria.copyWith(id: idSupabase);
       await _localDb.createCategoriaComIdEspecifico(categoriaComId, idsProdutos);
 
@@ -1073,38 +1163,49 @@ Future<int> createCategoria(Categoria categoria, List<int> idsProdutos) async {
       
     } catch (e) {
       print('❌ Erro ao criar categoria no Supabase: $e');
-      // Fallback: criar offline
-      return await _localDb.createCategoria(categoria, idsProdutos);
+      // 🔥 FALLBACK OFFLINE
+      final idLocal = await _localDb.createCategoria(categoria, idsProdutos);
+      _addToOfflineQueue(OfflineOperation(
+        type: 'create_categoria',
+        data: {
+          'categoria': categoria.copyWith(id: idLocal).toMap(),
+          'produtos': idsProdutos,
+        },
+        timestamp: DateTime.now(),
+      ));
+      return idLocal;
     }
   } else {
-    // Offline: criar local
-    return await _localDb.createCategoria(categoria, idsProdutos);
+    // 🔥 MODO OFFLINE
+    final idLocal = await _localDb.createCategoria(categoria, idsProdutos);
+    _addToOfflineQueue(OfflineOperation(
+      type: 'create_categoria',
+      data: {
+        'categoria': categoria.copyWith(id: idLocal).toMap(),
+        'produtos': idsProdutos,
+      },
+      timestamp: DateTime.now(),
+    ));
+    return idLocal;
   }
 }
 
 // lib/services/supabase_sync_service.dart
 
 Future<int> updateCategoria(Categoria categoria, List<int> idsProdutos) async {
-  // 1. Atualizar localmente
+  // 1. Atualizar localmente PRIMEIRO
   final result = await _localDb.updateCategoria(categoria, idsProdutos);
 
   // 2. Sincronizar com Supabase
   if (_isOnline && categoria.id != null) {
     try {
-      await _supabase
-          .from('categorias')
-          .update({
-            'nome_categoria': categoria.nome,
-            'descricao': categoria.descricao,
-            'device_id': _deviceId, // 🔥 ADICIONAR device_id
-          })
-          .eq('id_categoria', categoria.id!);
+      await _supabase.from('categorias').update({
+        'nome_categoria': categoria.nome,
+        'descricao': categoria.descricao,
+        'device_id': _deviceId,
+      }).eq('id_categoria', categoria.id!);
       
-      // Atualizar associações
-      await _supabase
-          .from('produto_categoria')
-          .delete()
-          .eq('id_categoria', categoria.id!);
+      await _supabase.from('produto_categoria').delete().eq('id_categoria', categoria.id!);
       
       if (idsProdutos.isNotEmpty) {
         for (final idProduto in idsProdutos) {
@@ -1117,18 +1218,32 @@ Future<int> updateCategoria(Categoria categoria, List<int> idsProdutos) async {
       
       print('✅ Categoria ${categoria.id} atualizada no Supabase');
       
-      // 🔥 REMOVER: Listener fará a sincronização
-      
     } catch (e) {
       print('⚠️ Erro ao sincronizar categoria: $e');
+      _addToOfflineQueue(OfflineOperation(
+        type: 'update_categoria',
+        data: {
+          'categoria': categoria.toMap(),
+          'produtos': idsProdutos,
+        },
+        timestamp: DateTime.now(),
+      ));
     }
+  } else if (!_isOnline) {
+    _addToOfflineQueue(OfflineOperation(
+      type: 'update_categoria',
+      data: {
+        'categoria': categoria.toMap(),
+        'produtos': idsProdutos,
+      },
+      timestamp: DateTime.now(),
+    ));
   }
 
   return result;
 }
 
 
-// 🔥 SUBSTITUIR o método deleteCategoria completo:
 Future<int> deleteCategoria(int idCategoria) async {
   // 1. Deletar localmente PRIMEIRO
   final result = await _localDb.deleteCategoria(idCategoria);
@@ -1150,12 +1265,10 @@ Future<int> deleteCategoria(int idCategoria) async {
       
       print('✅ Categoria $idCategoria deletada do Supabase');
       
-      // Aguardar propagação do Realtime
-      await Future.delayed(const Duration(milliseconds: 500));
-      
     } catch (e) {
       print('❌ Erro ao deletar categoria no Supabase: $e');
       
+      // 🔥 ADICIONAR À FILA OFFLINE
       _addToOfflineQueue(OfflineOperation(
         type: 'delete_categoria',
         data: {'id_categoria': idCategoria},
@@ -1163,7 +1276,7 @@ Future<int> deleteCategoria(int idCategoria) async {
       ));
     }
   } else {
-    // Adicionar à fila offline
+    // 3. Se OFFLINE, adicionar à fila
     _addToOfflineQueue(OfflineOperation(
       type: 'delete_categoria',
       data: {'id_categoria': idCategoria},
@@ -1200,18 +1313,16 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     return await _createPedidoOffline(pedido, itens);
   }
   
-  // 🔥 NOVO: TESTAR QUALIDADE DA CONEXÃO ANTES
+  // Teste de conexão
   try {
-    print('🔍 Testando qualidade da conexão...');
     await _supabase
       .from('pedidos')
       .select('id_pedido')
       .limit(1)
       .timeout(const Duration(seconds: 2));
-    print('✅ Conexão estável detectada');
     
   } on TimeoutException {
-    print('⚠️ Conexão instável (timeout no ping) - criando offline');
+    print('⚠️ Conexão instável - criando offline');
     return await _createPedidoOffline(pedido, itens);
   } catch (e) {
     print('⚠️ Erro no teste de conexão: $e - criando offline');
@@ -1229,33 +1340,52 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
       'subtotal': item.subtotal,
     }).toList();
     
-    print('🔄 Criando pedido no Supabase...');
+    print('🔄 Criando pedido no Supabase via RPC...');
     
-    // 🔥 TIMEOUT REDUZIDO: 10s → 5s
+    // ✅ NOVA ORDEM DE PARÂMETROS
     final response = await _supabase.rpc('criar_pedido_completo', params: {
+      // OBRIGATÓRIOS (ordem exata da função SQL)
       'p_reference': reference,
       'p_id_usuario': pedido.idUsuario,
-      'p_telefone': pedido.telefone,
-      'p_email': pedido.email,
       'p_idtipo_pagamento': pedido.idTipoPagamento,
       'p_itens': itensJson,
+      
+      // OPCIONAIS (podem ser omitidos se forem null)
+      'p_telefone': pedido.telefone,
+      'p_email': pedido.email,
+      'p_device_id': _deviceId,
+      'p_bairro': pedido.bairro,
+      'p_ponto_referencia': pedido.pontoReferencia,
+      'p_endereco_json': pedido.enderecoJson,
     }).timeout(
-      const Duration(seconds: 5), // ✅ REDUZIDO
-      onTimeout: () => throw TimeoutException('Conexão instável - timeout na criação'),
+      const Duration(seconds: 10),
+      onTimeout: () => throw TimeoutException('Timeout ao criar pedido'),
     );
     
-    final idSupabase = response[0]['id_pedido'] as int;
-    final total = (response[0]['total'] as num).toDouble();
+    if (response.isEmpty) {
+      throw Exception('RPC não retornou dados');
+    }
     
-    print('✅ Pedido #$idSupabase criado via RPC | Total: MZN $total');
+    final resultado = response[0];
+    final idSupabase = resultado['id_pedido'] as int;
+    final total = (resultado['total'] as num).toDouble();
+    final itensCriados = resultado['itens_criados'] as int;
+    final estoqueDebitado = resultado['estoque_debitado'] as bool;
     
-    // Criar localmente APÓS sucesso no Supabase
+    print('✅ Pedido #$idSupabase criado via RPC');
+    print('   Total: MZN $total');
+    print('   Itens: $itensCriados');
+    print('   Estoque: ${estoqueDebitado ? "Debitado ✓" : "Erro ✗"}');
+    
+    // Criar localmente
     final db = await _localDb.database;
     await db.transaction((txn) async {
       final pedidoComId = pedido.copyWith(
         id: idSupabase,
         reference: reference,
         total: total,
+        statusPedido: 'por finalizar',
+        dataPedido: DateTime.now().toIso8601String(),
       );
       
       await txn.insert(
@@ -1272,7 +1402,6 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
         
-        // Debitar estoque local
         await txn.rawUpdate(
           'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
           [item.quantidade, item.idProduto],
@@ -1280,52 +1409,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
       }
     });
     
-    // 🔥 NOVO: VALIDAR CONSISTÊNCIA DO ESTOQUE
-    try {
-      print('🔍 Validando consistência do estoque...');
-      
-      for (final item in itens) {
-        final estoqueRemoto = await _supabase
-          .from('produtos')
-          .select('quantidade_estoque, nome_produto')
-          .eq('id_produto', item.idProduto)
-          .single()
-          .timeout(const Duration(seconds: 3));
-        
-        final estoqueLocal = await db.query(
-          'produto',
-          columns: ['quantidade_estoque', 'nome_produto'],
-          where: 'id_produto = ?',
-          whereArgs: [item.idProduto],
-        );
-        
-        if (estoqueLocal.isNotEmpty) {
-          final qtdRemota = estoqueRemoto['quantidade_estoque'] as int;
-          final qtdLocal = estoqueLocal.first['quantidade_estoque'] as int;
-          final nomeProduto = estoqueLocal.first['nome_produto'] as String;
-          
-          if (qtdRemota != qtdLocal) {
-            print('⚠️ INCONSISTÊNCIA DETECTADA: $nomeProduto');
-            print('   Remoto: $qtdRemota | Local: $qtdLocal');
-            
-            // Corrigir estoque local para bater com o remoto
-            await db.update(
-              'produto',
-              {'quantidade_estoque': qtdRemota},
-              where: 'id_produto = ?',
-              whereArgs: [item.idProduto],
-            );
-            print('✅ Estoque local corrigido: $nomeProduto → $qtdRemota');
-          } else {
-            print('✅ Estoque consistente: $nomeProduto ($qtdLocal)');
-          }
-        }
-      }
-      
-    } catch (e) {
-      print('⚠️ Não foi possível validar estoque: $e');
-      // Não é crítico - pedido já foi criado com sucesso
-    }
+    print('✅ Pedido sincronizado localmente');
     
     return idSupabase;
     
@@ -1336,13 +1420,11 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
   } catch (e) {
     print('❌ Erro ao criar pedido: $e');
     
-    // Se erro for de estoque, NÃO criar offline
     if (e.toString().contains('Estoque insuficiente') || 
         e.toString().contains('não encontrado')) {
       rethrow;
     }
     
-    // Outros erros: criar offline
     return await _createPedidoOffline(pedido, itens);
   }
 }
@@ -1356,69 +1438,34 @@ Future<int> _createPedidoOffline(Pedido pedido, List<ItemPedido> itens) async {
     return await db.transaction((txn) async {
       final reference = 'OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
       
-      // Criar mapa do pedido
       final pedidoMap = pedido.copyWith(
         reference: reference,
         statusPedido: 'por finalizar',
       ).toMap();
       
-      // ✅ Garantir formato correto da data
       pedidoMap['data_pedido'] = DateTime.now().toIso8601String();
-      
-      // Remover id_pedido (deixa AUTOINCREMENT gerar)
       pedidoMap.remove('id_pedido');
       
       final idLocal = await txn.insert('pedido', pedidoMap);
       
       double totalCalculado = 0;
       
-      // 🔥 VALIDAR ESTOQUE LOCAL ANTES DE DEBITAR
       for (final item in itens) {
-        final produtoRows = await txn.query(
-          'produto',
-          columns: ['quantidade_estoque', 'nome_produto'],
-          where: 'id_produto = ?',
-          whereArgs: [item.idProduto],
-        );
+        // Validações de estoque...
         
-        if (produtoRows.isEmpty) {
-          throw Exception('Produto ${item.idProduto} não encontrado localmente');
-        }
-        
-        final estoqueLocal = produtoRows.first['quantidade_estoque'] as int;
-        final nomeProduto = produtoRows.first['nome_produto'] as String;
-        
-        if (estoqueLocal < item.quantidade) {
-          throw Exception(
-            'Estoque insuficiente para "$nomeProduto".\n'
-            'Disponível: $estoqueLocal | Solicitado: ${item.quantidade}'
-          );
-        }
-      }
-      
-      // Se validação passou, inserir itens e debitar estoque
-      for (final item in itens) {
         final itemMap = item.copyWith(idPedido: idLocal).toMap();
         itemMap.remove('id_item_pedido');
         
         await txn.insert('item_pedido', itemMap);
         
-        // Debitar estoque local
-        final rowsAffected = await txn.rawUpdate(
+        await txn.rawUpdate(
           'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
           [item.quantidade, item.idProduto],
         );
         
-        if (rowsAffected == 0) {
-          throw Exception('Falha ao debitar estoque do produto ${item.idProduto}');
-        }
-        
-        print('✅ Estoque local debitado: produto ${item.idProduto} (-${item.quantidade})');
-        
         totalCalculado += item.subtotal;
       }
       
-      // Atualizar total
       await txn.update(
         'pedido',
         {'total': totalCalculado},
@@ -1426,8 +1473,23 @@ Future<int> _createPedidoOffline(Pedido pedido, List<ItemPedido> itens) async {
         whereArgs: [idLocal],
       );
       
-      print('✅ Pedido #$idLocal criado offline | Total: MZN $totalCalculado');
-      print('📝 Será sincronizado quando conexão for restaurada');
+      // ✅ ADICIONAR À FILA OFFLINE
+      _addToOfflineQueue(OfflineOperation(
+        type: 'create_pedido_completo',
+        data: {
+          'id_pedido_local': idLocal,
+          'pedido': pedidoMap,
+          'itens': itens.map((i) => {
+            'id_produto': i.idProduto,
+            'quantidade': i.quantidade,
+            'preco_unitario': i.precoUnitario,
+            'subtotal': i.subtotal,
+          }).toList(),
+        },
+        timestamp: DateTime.now(),
+      ));
+      
+      print('✅ Pedido #$idLocal criado offline e adicionado à fila');
       
       return idLocal;
     });
@@ -1458,8 +1520,11 @@ Future<void> adicionarItemAoPedido(
 
   final db = await _localDb.database;
   
+  // ==========================================
+  // 1. EXECUTAR LOCALMENTE PRIMEIRO (TRANSAÇÃO)
+  // ==========================================
   await db.transaction((txn) async {
-    // 1. Buscar dados do produto
+    // 1.1 Buscar dados do produto
     final produtoRows = await txn.rawQuery(
       'SELECT preco, quantidade_estoque, nome_produto FROM produto WHERE id_produto = ?',
       [idProduto],
@@ -1474,7 +1539,7 @@ Future<void> adicionarItemAoPedido(
     final estoqueDisponivel = row['quantidade_estoque'] as int?;
     final nomeProduto = row['nome_produto'] as String;
     
-    // 2. Verificar estoque disponível
+    // 1.2 Verificar estoque disponível
     if (estoqueDisponivel == null || estoqueDisponivel < quantidade) {
       throw Exception(
         'Estoque insuficiente para $nomeProduto.\n'
@@ -1482,7 +1547,7 @@ Future<void> adicionarItemAoPedido(
       );
     }
     
-    // 3. Verificar se item já existe no pedido
+    // 1.3 Verificar se item já existe no pedido
     final itemExistente = await txn.rawQuery(
       'SELECT id_item_pedido, quantidade FROM item_pedido WHERE id_pedido = ? AND id_produto = ?',
       [idPedido, idProduto],
@@ -1522,7 +1587,7 @@ Future<void> adicionarItemAoPedido(
       print('✅ Novo item adicionado: $nomeProduto (x$quantidade)');
     }
     
-    // 4. 🔥 DÉBITO DE ESTOQUE (sempre executado)
+    // 1.4 🔥 DÉBITO DE ESTOQUE (sempre executado)
     await txn.rawUpdate(
       'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
       [quantidade, idProduto],
@@ -1530,7 +1595,7 @@ Future<void> adicionarItemAoPedido(
     
     print('📦 Estoque debitado: $nomeProduto (-$quantidade)');
     
-    // 5. 🔥 CRÍTICO: Recalcular total do pedido LOCALMENTE
+    // 1.5 🔥 CRÍTICO: Recalcular total do pedido LOCALMENTE
     final totalResult = await txn.rawQuery(
       'SELECT SUM(subtotal) as total FROM item_pedido WHERE id_pedido = ?',
       [idPedido],
@@ -1549,14 +1614,14 @@ Future<void> adicionarItemAoPedido(
   }); // 🔥 FIM DA TRANSAÇÃO
   
   // ==========================================
-  // SINCRONIZAÇÃO COM SUPABASE (FORA DA TRANSAÇÃO)
+  // 2. SINCRONIZAÇÃO COM SUPABASE (FORA DA TRANSAÇÃO)
   // ==========================================
   
   if (_isOnline) {
     try {
       print('🌐 Sincronizando item adicionado com Supabase...');
       
-      // 1. Verificar se item já existe no Supabase
+      // 2.1 Verificar se item já existe no Supabase
       final itemSupabaseResponse = await _supabase
           .from('itens_pedido')
           .select('id_item_pedido, quantidade, preco_unitario')
@@ -1604,7 +1669,7 @@ Future<void> adicionarItemAoPedido(
         }
       }
       
-      // 2. Debitar estoque no Supabase
+      // 2.2 Debitar estoque no Supabase
       await _supabase.rpc('decrement_stock', params: {
         'product_id': idProduto,
         'quantity': quantidade,
@@ -1612,7 +1677,7 @@ Future<void> adicionarItemAoPedido(
       
       print('✅ Estoque debitado no Supabase: produto $idProduto (-$quantidade)');
       
-      // 3. Buscar total atualizado do banco local e sincronizar
+      // 2.3 Buscar total atualizado do banco local e sincronizar
       final pedidoAtualizado = await db.query(
         'pedido',
         columns: ['total'],
@@ -1651,7 +1716,7 @@ Future<void> adicionarItemAoPedido(
       print('📝 Operação adicionada à fila offline');
     }
   } else {
-    // 🔥 MODO OFFLINE: Adicionar à fila
+    // 3. 🔥 MODO OFFLINE: Adicionar à fila
     print('📵 Modo offline - adicionando à fila de sincronização');
     
     _addToOfflineQueue(OfflineOperation(
@@ -1667,7 +1732,8 @@ Future<void> adicionarItemAoPedido(
   
   // 🔥 NOTIFICAR MUDANÇAS DE ESTOQUE
   notificarMudancaEstoque();
-}// ==========================================
+}
+// ==========================================
 // ATUALIZAR QUANTIDADE DE ITEM EXISTENTE
 // ==========================================
 
@@ -1678,8 +1744,21 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
 
   final db = await _localDb.database;
   
+  // Buscar item antes da transação para usar nos dados offline
+  final itemMapsPreTransacao = await db.query(
+    'item_pedido',
+    where: 'id_item_pedido = ?',
+    whereArgs: [idItemPedido],
+  );
+  
+  if (itemMapsPreTransacao.isEmpty) {
+    throw Exception('Item não encontrado');
+  }
+  
+  final itemParaDadosOffline = ItemPedido.fromMap(itemMapsPreTransacao.first);
+  final diferencaQuantidadeParaOffline = novaQuantidade - itemParaDadosOffline.quantidade;
+  
   await db.transaction((txn) async {
-    // 1. Buscar item atual
     final itemMaps = await txn.query(
       'item_pedido',
       where: 'id_item_pedido = ?',
@@ -1695,7 +1774,6 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
     
     print('📊 Alterando quantidade: ${itemAtual.quantidade} → $novaQuantidade (diff: $diferencaQuantidade)');
     
-    // 2. 🔥 CORREÇÃO: Verificar estoque SOMENTE se AUMENTAR quantidade
     if (diferencaQuantidade > 0) {
       final produtoRows = await txn.query(
         'produto',
@@ -1717,7 +1795,6 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
       }
     }
     
-    // 3. Atualizar item
     final novoSubtotal = novaQuantidade * itemAtual.precoUnitario;
     
     await txn.update(
@@ -1730,7 +1807,6 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
       whereArgs: [idItemPedido],
     );
     
-    // 4. 🔥 CORREÇÃO CRÍTICA: Ajustar estoque CORRETAMENTE pela diferença
     if (diferencaQuantidade != 0) {
       await txn.rawUpdate(
         'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
@@ -1740,7 +1816,6 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
       print('📦 Estoque ajustado: produto ${itemAtual.idProduto} (diff: $diferencaQuantidade)');
     }
     
-    // 5. Recalcular total do pedido
     final totalResult = await txn.rawQuery(
       'SELECT SUM(subtotal) as total FROM item_pedido WHERE id_pedido = ?',
       [itemAtual.idPedido],
@@ -1756,12 +1831,11 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
     );
     
     print('💰 Total do pedido recalculado: MZN ${total.toStringAsFixed(2)}');
-  }); // 🔥 FIM DA TRANSAÇÃO AQUI
+  });
   
-  // 🔥 SINCRONIZAÇÃO FORA DA TRANSAÇÃO (usando a variável db já declarada)
+  // 🔥 SINCRONIZAÇÃO FORA DA TRANSAÇÃO
   if (_isOnline) {
     try {
-      // Buscar item novamente para pegar o idPedido
       final itemMapsForSync = await db.query(
         'item_pedido',
         where: 'id_item_pedido = ?',
@@ -1771,13 +1845,11 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
       if (itemMapsForSync.isNotEmpty) {
         final itemParaSync = ItemPedido.fromMap(itemMapsForSync.first);
         
-        // Sincronizar item atualizado
         await _supabase.from('itens_pedido').update({
           'quantidade': itemParaSync.quantidade,
           'subtotal': itemParaSync.subtotal,
         }).eq('id_item_pedido', idItemPedido);
         
-        // Buscar e sincronizar estoque atualizado
         final produtoRows = await db.query(
           'produto',
           columns: ['quantidade_estoque'],
@@ -1790,10 +1862,10 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
           await _supabase.from('produtos').update({
             'quantidade_estoque': estoqueAtualizado,
             'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'device_id': _deviceId,
           }).eq('id_produto', itemParaSync.idProduto);
         }
         
-        // Buscar e sincronizar total atualizado
         final pedidoAtualizado = await db.query(
           'pedido',
           columns: ['total'],
@@ -1806,7 +1878,8 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
           
           await _supabase.from('pedidos').update({
             'total': totalAtualizado,
-           'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'device_id': _deviceId,
           }).eq('id_pedido', itemParaSync.idPedido);
           
           print('✅ Item, estoque e total sincronizados com Supabase');
@@ -1814,7 +1887,30 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
       }
     } catch (e) {
       print('⚠️ Erro ao sincronizar: $e');
+      // 🔥 ADICIONAR À FILA OFFLINE
+      _addToOfflineQueue(OfflineOperation(
+        type: 'update_quantidade_item',
+        data: {
+          'id_item_pedido': idItemPedido,
+          'nova_quantidade': novaQuantidade,
+          'id_produto': itemParaDadosOffline.idProduto,
+          'diferenca_quantidade': diferencaQuantidadeParaOffline,
+        },
+        timestamp: DateTime.now(),
+      ));
     }
+  } else {
+    // 🔥 MODO OFFLINE
+    _addToOfflineQueue(OfflineOperation(
+      type: 'update_quantidade_item',
+      data: {
+        'id_item_pedido': idItemPedido,
+        'nova_quantidade': novaQuantidade,
+        'id_produto': itemParaDadosOffline.idProduto,
+        'diferenca_quantidade': diferencaQuantidadeParaOffline,
+      },
+      timestamp: DateTime.now(),
+    ));
   }
   
   notificarMudancaEstoque();
@@ -1828,6 +1924,10 @@ Future<void> updateQuantidadeItem(int idItemPedido, int novaQuantidade) async {
 
 // 🔥 SUBSTITUIR o método completo:
 Future<void> cancelarPedido(int idPedido, String motivo, int idUsuarioCancelou) async {
+  // 1. Cancelar localmente PRIMEIRO
+  await _localDb.cancelarPedido(idPedido, motivo, idUsuarioCancelou);
+  
+  // 2. Sincronizar com Supabase
   if (_isOnline) {
     try {
       final itensResponse = await _supabase
@@ -1842,16 +1942,13 @@ Future<void> cancelarPedido(int idPedido, String motivo, int idUsuarioCancelou) 
         });
       }
       
-      await _supabase
-          .from('pedidos')
-          .update({
-            'status_pedido': 'cancelado',
-            'data_finalizacao': DateTime.now().toUtc().toIso8601String(),
-            'device_id': _deviceId,
-          })
-          .eq('id_pedido', idPedido);
+      await _supabase.from('pedidos').update({
+        'status_pedido': 'cancelado',
+        'data_finalizacao': DateTime.now().toUtc().toIso8601String(),
+        'device_id': _deviceId,
+      }).eq('id_pedido', idPedido);
       
-      print('✅ Pedido $idPedido cancelado (device: $_deviceId)');
+      print('✅ Pedido $idPedido cancelado no Supabase');
       
     } catch (e) {
       print('⚠️ Erro ao cancelar no Supabase: $e');
@@ -1865,9 +1962,18 @@ Future<void> cancelarPedido(int idPedido, String motivo, int idUsuarioCancelou) 
         timestamp: DateTime.now(),
       ));
     }
+  } else {
+    // 🔥 MODO OFFLINE
+    _addToOfflineQueue(OfflineOperation(
+      type: 'cancelar_pedido',
+      data: {
+        'id_pedido': idPedido,
+        'motivo': motivo,
+        'id_usuario_cancelou': idUsuarioCancelou,
+      },
+      timestamp: DateTime.now(),
+    ));
   }
-
-  await _localDb.cancelarPedido(idPedido, motivo, idUsuarioCancelou);
 }
 
 // Localização: sync_service.dart, linha ~650
@@ -1880,28 +1986,7 @@ Future<void> finalizarPedido(
   double? valorPago,
   double? troco,
 }) async {
-  // 1. 🔥 FINALIZAR NO SUPABASE PRIMEIRO
-  if (_isOnline) {
-    try {
-      await _supabase
-          .from('pedidos')
-          .update({
-            'status_pedido': 'finalizado',
-            'idtipo_pagamento': idTipoPagamento,
-            'valor_pago_manual': valorPago,
-            'troco': troco,
-            'data_finalizacao': DateTime.now().toUtc().toIso8601String(),
-          })
-          .eq('id_pedido', idPedido);
-      
-      print('✅ Pedido $idPedido finalizado no Supabase');
-      
-    } catch (e) {
-      print('⚠️ Erro ao finalizar no Supabase: $e');
-    }
-  }
-
-  // 2. Finalizar localmente
+  // 1. Finalizar localmente PRIMEIRO
   await _localDb.finalizarPedido(
     idPedido,
     idTipoPagamento,
@@ -1909,8 +1994,47 @@ Future<void> finalizarPedido(
     troco: troco,
   );
   
-  
-}  // ==========================================
+  // 2. Sincronizar com Supabase
+  if (_isOnline) {
+    try {
+      await _supabase.from('pedidos').update({
+        'status_pedido': 'finalizado',
+        'idtipo_pagamento': idTipoPagamento,
+        'valor_pago_manual': valorPago,
+        'troco': troco,
+        'data_finalizacao': DateTime.now().toUtc().toIso8601String(),
+        'device_id': _deviceId,
+      }).eq('id_pedido', idPedido);
+      
+      print('✅ Pedido $idPedido finalizado no Supabase');
+      
+    } catch (e) {
+      print('⚠️ Erro ao finalizar no Supabase: $e');
+      _addToOfflineQueue(OfflineOperation(
+        type: 'finalizar_pedido',
+        data: {
+          'id_pedido': idPedido,
+          'idtipo_pagamento': idTipoPagamento,
+          'valor_pago_manual': valorPago,
+          'troco': troco,
+        },
+        timestamp: DateTime.now(),
+      ));
+    }
+  } else {
+    // 🔥 MODO OFFLINE
+    _addToOfflineQueue(OfflineOperation(
+      type: 'finalizar_pedido',
+      data: {
+        'id_pedido': idPedido,
+        'idtipo_pagamento': idTipoPagamento,
+        'valor_pago_manual': valorPago,
+        'troco': troco,
+      },
+      timestamp: DateTime.now(),
+    ));
+  }
+} // ==========================================
   // MÉTODOS DE LEITURA (DELEGAR AO LOCAL DB)
   // ==========================================
 
@@ -1960,11 +2084,21 @@ Future<List<Pedido>> readPedidosPorFinalizar(int idUsuario) async {
   // FILA OFFLINE
   // ==========================================
 
-  void _addToOfflineQueue(OfflineOperation operation) {
+void _addToOfflineQueue(OfflineOperation operation) {
+  try {
+    // ✅ VALIDAR dados antes de adicionar
+    if (operation.data.isEmpty) {
+      print('⚠️ Operação sem dados - não adicionada à fila');
+      return;
+    }
+    
     _offlineQueue.add(operation);
     _saveOfflineQueue();
     print('📝 Operação adicionada à fila offline: ${operation.type}');
+  } catch (e) {
+    print('❌ Erro ao adicionar operação à fila: $e');
   }
+}
 
   Future<void> _loadOfflineQueue() async {
     try {
@@ -1994,6 +2128,35 @@ Future<List<Pedido>> readPedidosPorFinalizar(int idUsuario) async {
     }
   }
 
+  
+Future<void> validarFilaOffline() async {
+  print('🔍 Validando fila offline...');
+  
+  int removidos = 0;
+  _offlineQueue.removeWhere((op) {
+    if (op.type == 'create_produto') {
+      final imagensData = op.data['imagens'] as List<dynamic>?;
+      if (imagensData != null) {
+        for (final img in imagensData) {
+          if (img is Map && img['caminho'] == null) {
+            print('🗑️ Removendo operação com imagem inválida');
+            removidos++;
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  });
+  
+  if (removidos > 0) {
+    await _saveOfflineQueue();
+    print('✅ $removidos operações inválidas removidas da fila');
+  } else {
+    print('✅ Fila offline válida');
+  }
+}
+
   Future<void> syncOfflineQueue() async {
     if (_offlineQueue.isEmpty || !_isOnline) return;
 
@@ -2018,30 +2181,204 @@ Future<List<Pedido>> readPedidosPorFinalizar(int idUsuario) async {
 
   Future<void> _processOfflineOperation(OfflineOperation operation) async {
     switch (operation.type) {
-      case 'create_produto':
-        final produto = Produto.fromMap(operation.data['produto']);
-        await _supabase.from('produtos').insert({
-          'id_produto': operation.data['id_local'],
-          'nome_produto': produto.nome,
-          'preco': produto.preco,
-          'quantidade_estoque': produto.quantidadeEstoque,
-          'ativo': produto.ativo,
-        });
-        break;
-
-      case 'update_produto':
-        final produto = Produto.fromMap(operation.data['produto']);
-        if (produto.id != null) {
-          await _supabase
-              .from('produtos')
-              .update({
-                'nome_produto': produto.nome,
-                'preco': produto.preco,
-                'quantidade_estoque': produto.quantidadeEstoque,
-              })
-              .eq('id_produto', produto.id!);
+   case 'create_produto':
+  try {
+    final produtoData = operation.data['produto'] as Map<String, dynamic>;
+    final produto = Produto.fromMap(produtoData);
+    final idsCategorias = (operation.data['categorias'] as List<dynamic>?)?.cast<int>() ?? [];
+    final imagensData = (operation.data['imagens'] as List<dynamic>?) ?? [];
+    
+    print('📤 Processando produto offline: ${produto.nome}');
+    
+    // ✅ CORREÇÃO: Validar e fazer upload das imagens
+    final imagensComUrl = <Map<String, dynamic>>[];
+    
+    for (final imgData in imagensData) {
+      if (imgData == null || imgData is! Map<String, dynamic>) {
+        print('⚠️ Imagem inválida ignorada');
+        continue;
+      }
+      
+      // 🔥 VALIDAÇÃO: Verificar se caminho existe e não é null
+      final caminhoLocal = imgData['caminho'] as String?;
+      if (caminhoLocal == null || caminhoLocal.isEmpty) {
+        print('⚠️ Caminho de imagem vazio - ignorando');
+        continue;
+      }
+      
+      String caminhoFinal = caminhoLocal;
+      
+      // Upload apenas se for caminho local
+      if (!_storageService.isSupabaseUrl(caminhoLocal)) {
+        try {
+          final urlPublica = await _storageService.uploadImagem(caminhoLocal);
+          if (urlPublica != null && urlPublica.isNotEmpty) {
+            caminhoFinal = urlPublica;
+            print('✅ Upload offline: ${caminhoLocal.split('/').last} → $urlPublica');
+          } else {
+            print('⚠️ Upload falhou para $caminhoLocal - usando caminho local');
+          }
+        } catch (e) {
+          print('⚠️ Erro no upload de $caminhoLocal: $e');
+          // Mantém caminho local em caso de erro
         }
-        break;
+      }
+      
+      imagensComUrl.add({
+        'caminho': caminhoFinal,
+        'legenda': imgData['legenda'] as String?,
+        'imagem_principal': imgData['imagem_principal'] ?? 0,
+      });
+    }
+    
+    print('📸 ${imagensComUrl.length} imagens processadas');
+    
+    // Inserir produto no Supabase
+    final response = await _supabase.from('produtos').insert({
+      'nome_produto': produto.nome,
+      'descricao': produto.descricao,
+      'preco': produto.preco,
+      'preco_promocional': produto.precoPromocional,
+      'quantidade_estoque': produto.quantidadeEstoque ?? 0,
+      'ativo': produto.ativo,
+      'data_cadastro': produto.dataCadastro ?? DateTime.now().toIso8601String(),
+      'device_id': _deviceId,
+    }).select().single();
+
+    final idSupabase = response['id_produto'] as int;
+    print('✅ Produto criado no Supabase com ID: $idSupabase');
+    
+    // Inserir categorias
+    if (idsCategorias.isNotEmpty) {
+      for (final idCategoria in idsCategorias) {
+        await _supabase.from('produto_categoria').insert({
+          'id_produto': idSupabase,
+          'id_categoria': idCategoria,
+        });
+      }
+      print('✅ ${idsCategorias.length} categorias associadas');
+    }
+    
+    // Inserir imagens COM URLs VALIDADAS
+    if (imagensComUrl.isNotEmpty) {
+      for (final imagem in imagensComUrl) {
+        await _supabase.from('produto_imagem').insert({
+          'id_produto': idSupabase,
+          'caminho_imagem': imagem['caminho'],
+          'legenda': imagem['legenda'],
+          'imagem_principal': imagem['imagem_principal'],
+        });
+      }
+      print('✅ ${imagensComUrl.length} imagens inseridas no Supabase');
+    }
+    
+    // Atualizar ID local para ID do Supabase
+    final db = await _localDb.database;
+    await db.update(
+      'produto',
+      {'id_produto': idSupabase},
+      where: 'id_produto = ?',
+      whereArgs: [produto.id],
+    );
+    
+    print('✅ Produto offline sincronizado: ID local ${produto.id} → Supabase $idSupabase');
+    
+  } catch (e) {
+    print('❌ ERRO CRÍTICO ao processar create_produto: $e');
+    print('   Stack trace: ${StackTrace.current}');
+    rethrow; // Mantém na fila para próxima tentativa
+  }
+  break;
+
+    case 'update_produto':
+  try {
+    final produtoData = operation.data['produto'] as Map<String, dynamic>;
+    final produto = Produto.fromMap(produtoData);
+    final idsCategorias = (operation.data['categorias'] as List<dynamic>?)?.cast<int>() ?? [];
+    final imagensData = (operation.data['imagens'] as List<dynamic>?) ?? [];
+    
+    print('📤 Processando atualização offline: ${produto.nome}');
+    
+    if (produto.id == null) {
+      throw Exception('ID do produto é obrigatório para atualização');
+    }
+    
+    // Upload de imagens se necessário
+    final imagensComUrl = <Map<String, dynamic>>[];
+    for (final imgData in imagensData) {
+      if (imgData == null || imgData is! Map<String, dynamic>) continue;
+      
+      final caminhoLocal = imgData['caminho'] as String?;
+      if (caminhoLocal == null || caminhoLocal.isEmpty) continue;
+      
+      String caminhoFinal = caminhoLocal;
+      if (!_storageService.isSupabaseUrl(caminhoLocal)) {
+        final urlPublica = await _storageService.uploadImagem(caminhoLocal);
+        if (urlPublica != null) caminhoFinal = urlPublica;
+      }
+      
+      imagensComUrl.add({
+        'caminho': caminhoFinal,
+        'legenda': imgData['legenda'],
+        'imagem_principal': imgData['imagem_principal'] ?? 0,
+      });
+    }
+    
+    // Atualizar produto
+    await _supabase.from('produtos').update({
+      'nome_produto': produto.nome,
+      'descricao': produto.descricao,
+      'preco': produto.preco,
+      'preco_promocional': produto.precoPromocional,
+      'quantidade_estoque': produto.quantidadeEstoque,
+      'ativo': produto.ativo,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+      'device_id': _deviceId,
+    }).eq('id_produto', produto.id!);
+    
+    // Atualizar categorias
+    await _supabase.from('produto_categoria').delete().eq('id_produto', produto.id!);
+    for (final idCategoria in idsCategorias) {
+      await _supabase.from('produto_categoria').insert({
+        'id_produto': produto.id!,
+        'id_categoria': idCategoria,
+      });
+    }
+    
+    // Atualizar imagens
+    await _supabase.from('produto_imagem').delete().eq('id_produto', produto.id!);
+    for (final imagem in imagensComUrl) {
+      await _supabase.from('produto_imagem').insert({
+        'id_produto': produto.id!,
+        'caminho_imagem': imagem['caminho'],
+        'legenda': imagem['legenda'],
+        'imagem_principal': imagem['imagem_principal'],
+      });
+    }
+    
+    print('✅ Produto ${produto.id} atualizado no Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar update_produto: $e');
+    rethrow;
+  }
+  break;
+
+  // case 'delete_produto':
+  // try {
+  //   final idProduto = operation.data['id_produto'] as int;
+    
+  //   print('📤 Processando exclusão offline: produto $idProduto');
+    
+  //   await _supabase.from('produtos').delete().eq('id_produto', idProduto);
+    
+  //   print('✅ Produto $idProduto deletado do Supabase');
+    
+  // } catch (e) {
+  //   print('❌ Erro ao processar delete_produto: $e');
+  //   rethrow;
+  // }
+  // break;
 
       case 'create_pedido':
         final pedidoData = operation.data['pedido'];
@@ -2060,126 +2397,327 @@ Future<List<Pedido>> readPedidosPorFinalizar(int idUsuario) async {
 // ==========================================
 
 case 'create_usuario':
-  final usuario = Usuario.fromMap(operation.data['usuario']);
-  await _supabase.from('usuario').insert({  // ✅ MUDOU: 'usuario'
-    'id_usuario': usuario.id,
-    'nome': usuario.nome,
-    'apelido': usuario.apelido,
-    'email': usuario.email,
-    'senha_hash': usuario.senhaHash,
-    'telefone': usuario.telefone,
-    'data_cadastro': usuario.dataCadastro,
-    'idperfil': usuario.idPerfil,
-    'ativo': usuario.ativo,
-  });
-  break;
-
-case 'update_usuario':
-  final usuario = Usuario.fromMap(operation.data['usuario']);
-  if (usuario.id != null) {
-    await _supabase
-        .from('usuario')  // ✅ MUDOU: 'usuario'
-        .update({
-          'nome': usuario.nome,
-          'apelido': usuario.apelido,
-          'email': usuario.email,
-          'senha_hash': usuario.senhaHash,
-          'telefone': usuario.telefone,
-          'ativo': usuario.ativo,
-        })
-        .eq('id_usuario', usuario.id!);
+  try {
+    final usuarioData = operation.data['usuario'] as Map<String, dynamic>;
+    final usuario = Usuario.fromMap(usuarioData);
+    
+    print('📤 Processando usuário offline: ${usuario.nome}');
+    
+    final response = await _supabase.from('usuario').insert({
+      'nome': usuario.nome,
+      'apelido': usuario.apelido,
+      'email': usuario.email,
+      'senha_hash': usuario.senhaHash,
+      'telefone': usuario.telefone,
+      'data_cadastro': usuario.dataCadastro,
+      'idprovincia': usuario.idProvincia,
+      'idcidade': usuario.idCidade,
+      'idperfil': usuario.idPerfil,
+      'primeira_senha': usuario.primeiraSenha,
+      'ativo': usuario.ativo,
+    }).select().single();
+    
+    final idSupabase = response['id_usuario'] as int;
+    
+    final db = await _localDb.database;
+    await db.update(
+      'usuario',
+      {'id_usuario': idSupabase},
+      where: 'id_usuario = ?',
+      whereArgs: [usuario.id],
+    );
+    
+    print('✅ Usuário offline sincronizado: ID local ${usuario.id} → Supabase $idSupabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar create_usuario: $e');
+    rethrow;
   }
   break;
 
-case 'delete_usuario':
-  final idUsuario = operation.data['id_usuario'] as int;
-  await _supabase
-      .from('usuario')  // ✅ MUDOU: 'usuario'
-      .delete()
-      .eq('id_usuario', idUsuario);
+case 'update_usuario':
+  try {
+    final usuarioData = operation.data['usuario'] as Map<String, dynamic>;
+    final usuario = Usuario.fromMap(usuarioData);
+    
+    print('📤 Processando atualização offline: usuário ${usuario.nome}');
+    
+    if (usuario.id == null) {
+      throw Exception('ID do usuário é obrigatório');
+    }
+    
+    await _supabase.from('usuario').update({
+      'nome': usuario.nome,
+      'apelido': usuario.apelido,
+      'email': usuario.email,
+      'senha_hash': usuario.senhaHash,
+      'telefone': usuario.telefone,
+      'idperfil': usuario.idPerfil,
+      'primeira_senha': usuario.primeiraSenha,
+      'ativo': usuario.ativo,
+    }).eq('id_usuario', usuario.id!);
+    
+    print('✅ Usuário ${usuario.id} atualizado no Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar update_usuario: $e');
+    rethrow;
+  }
   break;
-
+case 'delete_usuario':
+  try {
+    final idUsuario = operation.data['id_usuario'] as int;
+    
+    print('📤 Processando exclusão usuário offline: $idUsuario');
+    
+    await _supabase
+        .from('usuario')
+        .delete()
+        .eq('id_usuario', idUsuario);
+    
+    print('✅ Usuário deletado do Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar delete_usuario: $e');
+    rethrow;
+  }
+  break;
 // ==========================================
 // ADICIONAR CASES DE CATEGORIA
 // ==========================================
 
 case 'create_categoria':
-  final categoriaData = operation.data['categoria'];
-  final categoria = Categoria.fromMap(categoriaData);
-  
-   final response = await _supabase.from('categorias').insert({
-    'nome_categoria': categoria.nome,
-    'descricao': categoria.descricao,
-    'device_id': _deviceId, // 🔥 ADICIONAR ESTA LINHA
-  }).select().single();
-  
-  final idSupabase = response['id_categoria'] as int;
-  
-  final idsProdutos = operation.data['produtos'] as List<dynamic>?;
-  if (idsProdutos != null && idsProdutos.isNotEmpty) {
-    for (final idProduto in idsProdutos) {
-      await _supabase.from('produto_categoria').insert({
-        'id_produto': idProduto,
-        'id_categoria': idSupabase,
-      });
+  try {
+    final categoriaData = operation.data['categoria'] as Map<String, dynamic>;
+    final categoria = Categoria.fromMap(categoriaData);
+    final idsProdutos = (operation.data['produtos'] as List<dynamic>?)?.cast<int>() ?? [];
+    
+    print('📤 Processando categoria offline: ${categoria.nome}');
+    
+    final response = await _supabase.from('categorias').insert({
+      'nome_categoria': categoria.nome,
+      'descricao': categoria.descricao,
+      'device_id': _deviceId,
+    }).select().single();
+    
+    final idSupabase = response['id_categoria'] as int;
+    
+    if (idsProdutos.isNotEmpty) {
+      for (final idProduto in idsProdutos) {
+        await _supabase.from('produto_categoria').insert({
+          'id_produto': idProduto,
+          'id_categoria': idSupabase,
+        });
+      }
     }
+    
+    // Atualizar ID local
+    final db = await _localDb.database;
+    await db.update(
+      'categoria',
+      {'id_categoria': idSupabase},
+      where: 'id_categoria = ?',
+      whereArgs: [categoria.id],
+    );
+    
+    print('✅ Categoria offline sincronizada: ID local ${categoria.id} → Supabase $idSupabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar create_categoria: $e');
+    rethrow;
   }
   break;
 
 case 'update_categoria':
-  final categoria = Categoria.fromMap(operation.data['categoria']);
-  if (categoria.id != null) {
-    await _supabase
-        .from('categorias')
-        .update({
-          'nome_categoria': categoria.nome,
-          'descricao': categoria.descricao,
-        })
-        .eq('id_categoria', categoria.id!);
+  try {
+    final categoriaData = operation.data['categoria'] as Map<String, dynamic>;
+    final categoria = Categoria.fromMap(categoriaData);
+    final idsProdutos = (operation.data['produtos'] as List<dynamic>?)?.cast<int>() ?? [];
+    
+    print('📤 Processando atualização offline: categoria ${categoria.nome}');
+    
+    if (categoria.id == null) {
+      throw Exception('ID da categoria é obrigatório');
+    }
+    
+    await _supabase.from('categorias').update({
+      'nome_categoria': categoria.nome,
+      'descricao': categoria.descricao,
+      'device_id': _deviceId,
+    }).eq('id_categoria', categoria.id!);
+    
+    await _supabase.from('produto_categoria').delete().eq('id_categoria', categoria.id!);
+    
+    for (final idProduto in idsProdutos) {
+      await _supabase.from('produto_categoria').insert({
+        'id_produto': idProduto,
+        'id_categoria': categoria.id!,
+      });
+    }
+    
+    print('✅ Categoria ${categoria.id} atualizada no Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar update_categoria: $e');
+    rethrow;
   }
   break;
 
 case 'delete_categoria':
-  final idCategoria = operation.data['id_categoria'] as int;
-  await _supabase
-      .from('categorias')
-      .delete()
-      .eq('id_categoria', idCategoria);
+  try {
+    final idCategoria = operation.data['id_categoria'] as int;
+    
+    print('📤 Processando exclusão categoria offline: $idCategoria');
+    
+    await _supabase
+        .from('produto_categoria')
+        .delete()
+        .eq('id_categoria', idCategoria);
+    
+    await _supabase
+        .from('categorias')
+        .delete()
+        .eq('id_categoria', idCategoria);
+    
+    print('✅ Categoria deletada do Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar delete_categoria: $e');
+    rethrow;
+  }
   break;
+
+
 case 'cancelar_pedido':
-  final idPedido = operation.data['id_pedido'] as int;
-  final motivo = operation.data['motivo'] as String;
-  final idUsuario = operation.data['id_usuario_cancelou'] as int;
-  
-  await cancelarPedido(idPedido, motivo, idUsuario);
+  try {
+    final idPedido = operation.data['id_pedido'] as int;
+    final motivo = operation.data['motivo'] as String;
+    final idUsuario = operation.data['id_usuario_cancelou'] as int;
+    
+    print('📤 Processando cancelamento offline: pedido $idPedido');
+    
+    final itensResponse = await _supabase
+        .from('itens_pedido')
+        .select('id_produto, quantidade')
+        .eq('id_pedido', idPedido);
+    
+    for (final item in itensResponse) {
+      await _supabase.rpc('increment_stock', params: {
+        'product_id': item['id_produto'],
+        'quantity': item['quantidade'],
+      });
+    }
+    
+    await _supabase.from('pedidos').update({
+      'status_pedido': 'cancelado',
+      'data_finalizacao': DateTime.now().toUtc().toIso8601String(),
+      'device_id': _deviceId,
+    }).eq('id_pedido', idPedido);
+    
+    print('✅ Pedido $idPedido cancelado no Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar cancelar_pedido: $e');
+    rethrow;
+  }
   break;
 
 case 'finalizar_pedido':
-  final idPedido = operation.data['id_pedido'] as int;
-  final idTipoPagamento = operation.data['idtipo_pagamento'] as int;
-  
-  await finalizarPedido(
-    idPedido,
-    idTipoPagamento,
-    valorPago: operation.data['valor_pago_manual'] as double?,
-    troco: operation.data['troco'] as double?,
-  );
+  try {
+    final idPedido = operation.data['id_pedido'] as int;
+    final idTipoPagamento = operation.data['idtipo_pagamento'] as int;
+    final valorPago = operation.data['valor_pago_manual'] as double?;
+    final troco = operation.data['troco'] as double?;
+    
+    print('📤 Processando finalização offline: pedido $idPedido');
+    
+    await _supabase.from('pedidos').update({
+      'status_pedido': 'finalizado',
+      'idtipo_pagamento': idTipoPagamento,
+      'valor_pago_manual': valorPago,
+      'troco': troco,
+      'data_finalizacao': DateTime.now().toUtc().toIso8601String(),
+      'device_id': _deviceId,
+    }).eq('id_pedido', idPedido);
+    
+    print('✅ Pedido $idPedido finalizado no Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar finalizar_pedido: $e');
+    rethrow;
+  }
   break;
 
-  case 'toggle_ativo_produto':
-  final idProduto = operation.data['id_produto'] as int;
-  final ativo = operation.data['ativo'] as int;
-  
-  await _supabase
-      .from('produtos')
-      .update({
-        'ativo': ativo,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-        'device_id': _deviceId,
-      })
-      .eq('id_produto', idProduto);
+case 'toggle_ativo_produto':
+  try {
+    final idProduto = operation.data['id_produto'] as int;
+    final ativo = operation.data['ativo'] as int;
+    
+    print('📤 Processando toggle produto offline: $idProduto');
+    
+    await _supabase
+        .from('produtos')
+        .update({
+          'ativo': ativo,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+          'device_id': _deviceId,
+        })
+        .eq('id_produto', idProduto);
+    
+    print('✅ Status do produto sincronizado');
+    
+  } catch (e) {
+    print('❌ Erro ao processar toggle_ativo_produto: $e');
+    rethrow;
+  }
   break;
 
+
+case 'update_quantidade_item':
+  try {
+    final idItemPedido = operation.data['id_item_pedido'] as int;
+    final novaQuantidade = operation.data['nova_quantidade'] as int;
+    final idProduto = operation.data['id_produto'] as int;
+    final diferencaQuantidade = operation.data['diferenca_quantidade'] as int;
+    
+    print('📤 Processando atualização de quantidade offline');
+    
+    // Buscar item atual
+    final itemResponse = await _supabase
+        .from('itens_pedido')
+        .select('preco_unitario')
+        .eq('id_item_pedido', idItemPedido)
+        .single();
+    
+    final precoUnitario = (itemResponse['preco_unitario'] as num).toDouble();
+    final novoSubtotal = novaQuantidade * precoUnitario;
+    
+    // Atualizar item
+    await _supabase.from('itens_pedido').update({
+      'quantidade': novaQuantidade,
+      'subtotal': novoSubtotal,
+    }).eq('id_item_pedido', idItemPedido);
+    
+    // Ajustar estoque pela diferença
+    if (diferencaQuantidade > 0) {
+      await _supabase.rpc('decrement_stock', params: {
+        'product_id': idProduto,
+        'quantity': diferencaQuantidade,
+      });
+    } else if (diferencaQuantidade < 0) {
+      await _supabase.rpc('increment_stock', params: {
+        'product_id': idProduto,
+        'quantity': -diferencaQuantidade,
+      });
+    }
+    
+    print('✅ Quantidade atualizada no Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar update_quantidade_item: $e');
+    rethrow;
+  }
+  break;
 
   // 🔥 ADICIONAR ESTE CASE no switch de _processOfflineOperation:
 
@@ -2296,7 +2834,24 @@ case 'create_pedido_completo':
   }
   break;
 
-
+case 'toggle_ativo_usuario':
+  try {
+    final idUsuario = operation.data['id_usuario'] as int;
+    final ativo = operation.data['ativo'] as int;
+    
+    print('📤 Processando toggle ativo offline: usuário $idUsuario');
+    
+    await _supabase.from('usuario').update({
+      'ativo': ativo,
+    }).eq('id_usuario', idUsuario);
+    
+    print('✅ Status do usuário atualizado no Supabase');
+    
+  } catch (e) {
+    print('❌ Erro ao processar toggle_ativo_usuario: $e');
+    rethrow;
+  }
+  break;
 
 case 'adicionar_item_pedido':
   try {
@@ -2315,7 +2870,7 @@ case 'adicionar_item_pedido':
     
     final preco = (produtoResponse['preco'] as num).toDouble();
     
-    // 2. Verificar se item já existe no Supabase
+    // 2. 🔥 CRÍTICO: Verificar se item já existe no Supabase
     final itemExistenteResponse = await _supabase
         .from('itens_pedido')
         .select('id_item_pedido, quantidade')
@@ -2323,7 +2878,7 @@ case 'adicionar_item_pedido':
         .eq('id_produto', idProduto);
     
     if (itemExistenteResponse.isNotEmpty) {
-      // Atualizar item existente
+      // 🔥 ITEM JÁ EXISTE NO SUPABASE: Atualizar quantidade
       final itemRemoto = itemExistenteResponse.first;
       final idItemRemoto = itemRemoto['id_item_pedido'] as int;
       final quantidadeRemota = itemRemoto['quantidade'] as int;
@@ -2336,8 +2891,10 @@ case 'adicionar_item_pedido':
         'subtotal': novoSubtotal,
       }).eq('id_item_pedido', idItemRemoto);
       
+      print('✅ Item existente atualizado no Supabase: ${quantidadeRemota} → $novaQuantidade');
+      
     } else {
-      // Inserir novo item
+      // 🔥 ITEM NOVO NO SUPABASE: Inserir
       await _supabase.from('itens_pedido').insert({
         'id_pedido': idPedido,
         'id_produto': idProduto,
@@ -2345,6 +2902,8 @@ case 'adicionar_item_pedido':
         'preco_unitario': preco,
         'subtotal': quantidade * preco,
       });
+      
+      print('✅ Novo item inserido no Supabase');
     }
     
     // 3. Debitar estoque
@@ -2353,7 +2912,9 @@ case 'adicionar_item_pedido':
       'quantity': quantidade,
     });
     
-    // 4. Recalcular total do pedido
+    print('✅ Estoque debitado no Supabase: produto $idProduto (-$quantidade)');
+    
+    // 4. 🔥 CRÍTICO: Recalcular total do pedido no Supabase
     final itensResponse = await _supabase
         .from('itens_pedido')
         .select('subtotal')
@@ -2367,8 +2928,10 @@ case 'adicionar_item_pedido':
     await _supabase.from('pedidos').update({
       'total': totalCalculado,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
+      'device_id': _deviceId,
     }).eq('id_pedido', idPedido);
     
+    print('💰 Total do pedido recalculado no Supabase: MZN ${totalCalculado.toStringAsFixed(2)}');
     print('✅ Item offline processado com sucesso');
     
   } catch (e) {
@@ -2431,7 +2994,6 @@ void dispose() {
 Future<Usuario> createUsuario(Usuario usuario) async {
   if (_isOnline) {
     try {
-      // 1. Inserir no Supabase (SEM id_usuario)
       final response = await _supabase.from('usuario').insert({
         'nome': usuario.nome,
         'apelido': usuario.apelido,
@@ -2449,7 +3011,6 @@ Future<Usuario> createUsuario(Usuario usuario) async {
       final idSupabase = response['id_usuario'] as int;
       print('✅ Usuário criado no Supabase com ID: $idSupabase');
       
-      // 2. Criar localmente COM ID DO SUPABASE
       final usuarioComId = usuario.copyWith(id: idSupabase);
       final db = await _localDb.database;
       await db.insert('usuario', usuarioComId.toMap());
@@ -2458,79 +3019,136 @@ Future<Usuario> createUsuario(Usuario usuario) async {
       
     } catch (e) {
       print('❌ Erro ao criar usuário no Supabase: $e');
-      // Fallback: criar offline
-      return await _localDb.createUsuario(usuario);
+      // 🔥 FALLBACK OFFLINE
+      final usuarioLocal = await _localDb.createUsuario(usuario);
+      _addToOfflineQueue(OfflineOperation(
+        type: 'create_usuario',
+        data: {'usuario': usuarioLocal.toMap()},
+        timestamp: DateTime.now(),
+      ));
+      return usuarioLocal;
     }
   } else {
-    return await _localDb.createUsuario(usuario);
+    // 🔥 MODO OFFLINE
+    final usuarioLocal = await _localDb.createUsuario(usuario);
+    _addToOfflineQueue(OfflineOperation(
+      type: 'create_usuario',
+      data: {'usuario': usuarioLocal.toMap()},
+      timestamp: DateTime.now(),
+    ));
+    return usuarioLocal;
   }
 }
 
 
 Future<int> updateUsuario(Usuario usuario) async {
-  // 1. Atualizar localmente
+  // 1. Atualizar localmente PRIMEIRO
   final result = await _localDb.updateUsuario(usuario);
   
   // 2. Sincronizar com Supabase
   if (_isOnline && usuario.id != null) {
     try {
-      await _supabase
-          .from('usuario') // 🔥 CORRIGIDO: 'usuario' (singular no schema)
-          .update({
-            'nome': usuario.nome,
-            'apelido': usuario.apelido,
-            'email': usuario.email,
-            'senha_hash': usuario.senhaHash,
-            'telefone': usuario.telefone,
-            'idperfil': usuario.idPerfil,
-            'primeira_senha': usuario.primeiraSenha,
-            'ativo': usuario.ativo,
-          })
-          .eq('id_usuario', usuario.id!);
+      await _supabase.from('usuario').update({
+        'nome': usuario.nome,
+        'apelido': usuario.apelido,
+        'email': usuario.email,
+        'senha_hash': usuario.senhaHash,
+        'telefone': usuario.telefone,
+        'idperfil': usuario.idPerfil,
+        'primeira_senha': usuario.primeiraSenha,
+        'ativo': usuario.ativo,
+      }).eq('id_usuario', usuario.id!);
+      
       print('✅ Usuário ${usuario.id} atualizado no Supabase');
+      
     } catch (e) {
       print('⚠️ Erro ao sincronizar atualização: $e');
+      _addToOfflineQueue(OfflineOperation(
+        type: 'update_usuario',
+        data: {'usuario': usuario.toMap()},
+        timestamp: DateTime.now(),
+      ));
     }
+  } else if (!_isOnline) {
+    _addToOfflineQueue(OfflineOperation(
+      type: 'update_usuario',
+      data: {'usuario': usuario.toMap()},
+      timestamp: DateTime.now(),
+    ));
   }
   
   return result;
 }
 
 Future<int> deleteUsuario(int id) async {
-  // 1. Deletar localmente
+  // 1. Deletar localmente PRIMEIRO
   final result = await _localDb.deleteUsuario(id);
   
   // 2. Sincronizar com Supabase
   if (_isOnline) {
     try {
       await _supabase
-          .from('usuario') // 🔥 CORRIGIDO
+          .from('usuario')
           .delete()
           .eq('id_usuario', id);
+      
       print('✅ Usuário $id deletado do Supabase');
+      
     } catch (e) {
       print('⚠️ Erro ao sincronizar exclusão: $e');
+      
+      // 🔥 ADICIONAR À FILA OFFLINE
+      _addToOfflineQueue(OfflineOperation(
+        type: 'delete_usuario',
+        data: {'id_usuario': id},
+        timestamp: DateTime.now(),
+      ));
     }
+  } else {
+    // 3. Se OFFLINE, adicionar à fila
+    _addToOfflineQueue(OfflineOperation(
+      type: 'delete_usuario',
+      data: {'id_usuario': id},
+      timestamp: DateTime.now(),
+    ));
   }
   
   return result;
 }
 
 Future<int> toggleAtivoUsuario(int id, bool isActive) async {
+  // 1. Atualizar localmente PRIMEIRO
   final result = await _localDb.toggleAtivoUsuario(id, isActive);
   
+  // 2. Sincronizar com Supabase
   if (_isOnline) {
     try {
-      await _supabase
-          .from('usuario')  // ✅ CORRETO
-          .update({
-            'ativo': isActive ? 1 : 0,
-          })
-          .eq('id_usuario', id);
+      await _supabase.from('usuario').update({
+        'ativo': isActive ? 1 : 0,
+      }).eq('id_usuario', id);
+      
       print('✅ Status do usuário $id atualizado no Supabase');
+      
     } catch (e) {
       print('⚠️ Erro ao sincronizar status: $e');
+      _addToOfflineQueue(OfflineOperation(
+        type: 'toggle_ativo_usuario',
+        data: {
+          'id_usuario': id,
+          'ativo': isActive ? 1 : 0,
+        },
+        timestamp: DateTime.now(),
+      ));
     }
+  } else {
+    _addToOfflineQueue(OfflineOperation(
+      type: 'toggle_ativo_usuario',
+      data: {
+        'id_usuario': id,
+        'ativo': isActive ? 1 : 0,
+      },
+      timestamp: DateTime.now(),
+    ));
   }
   
   return result;

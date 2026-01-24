@@ -10,7 +10,7 @@ import '../models/pedido.dart';
 import 'dart:async';
 import'../services/estoque_alerta_service.dart';
 // Definindo a versão do DB como 2 para ativar o onUpgrade se já existir a v1
-const int _dbVersion = 6;
+const int _dbVersion = 7;
 
 class DatabaseService {
   // Padrão Singleton
@@ -388,8 +388,7 @@ await db.execute('''
     // ⚠️ SUBSTITUA PELOS HASHES REAIS GERADOS PELO FLUTTER_BCRYPT ⚠️
     // Ex: '$2a$10$XyZ...'
     const String hashMatias = r'$2b$10$rkq1G/KhzRox2m5jSaYmpOGUfHwq.KzS1LEd2cBJdn9A7NuZRZeua'; 
-    const String hashValentino = r'$2b$10$zU7HouStWDp76ygVld7waOVxZ9Sqxgg0/TiDgTkO4YVmDOAlB6M0S'; 
-
+   
     // ADMIN: Matias
     await db.rawInsert('''
       INSERT OR IGNORE INTO usuario (
@@ -405,20 +404,7 @@ await db.execute('''
       0
     ]);
 
-    // GERENTE: Valentino
-    await db.rawInsert('''
-      INSERT OR IGNORE INTO usuario (
-        nome, apelido, email, telefone, senha_hash, idperfil, primeira_senha
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', [
-      'Valentino', 
-      'Delavega', 
-      'valentinodelavega2020@gmail.com', 
-      '866821594', 
-      hashValentino, // Senha hash para: vega2020
-      2, // Perfil: Gerente
-      0
-    ]);
+
 
     // 10.4 Províncias
     final List<Map<String, dynamic>> provincias = [

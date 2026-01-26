@@ -1248,6 +1248,8 @@ Future<int> deleteCategoria(int idCategoria) async {
   // 1. Deletar localmente PRIMEIRO
   final result = await _localDb.deleteCategoria(idCategoria);
   
+  print('🗑️ Categoria $idCategoria deletada localmente');  // 🔥 LOG DIAGNÓSTICO
+  
   // 2. Sincronizar com Supabase
   if (_isOnline) {
     try {
@@ -1274,18 +1276,25 @@ Future<int> deleteCategoria(int idCategoria) async {
         data: {'id_categoria': idCategoria},
         timestamp: DateTime.now(),
       ));
+      
+      print('📝 Exclusão de categoria $idCategoria adicionada à fila offline');  // 🔥 LOG DIAGNÓSTICO
     }
   } else {
     // 3. Se OFFLINE, adicionar à fila
+    print('📵 Modo offline - adicionando exclusão à fila');  // 🔥 LOG DIAGNÓSTICO
+    
     _addToOfflineQueue(OfflineOperation(
       type: 'delete_categoria',
       data: {'id_categoria': idCategoria},
       timestamp: DateTime.now(),
     ));
+    
+    print('📝 Exclusão de categoria $idCategoria na fila (${_offlineQueue.length} operações pendentes)');  // 🔥 LOG DIAGNÓSTICO
   }
   
   return result;
 }
+
 
 
   // ==========================================
@@ -2569,20 +2578,38 @@ case 'delete_categoria':
     
     print('📤 Processando exclusão categoria offline: $idCategoria');
     
-    await _supabase
+    // 🔥 VALIDAR SE A CATEGORIA AINDA EXISTE NO SUPABASE
+    final categoriaExiste = await _supabase
+        .from('categorias')
+        .select('id_categoria')
+        .eq('id_categoria', idCategoria)
+        .maybeSingle();  // 🔥 USA maybeSingle() para não lançar erro se não existir
+    
+    if (categoriaExiste == null) {
+      print('⚠️ Categoria $idCategoria já foi deletada no Supabase - removendo da fila');
+      return;  // 🔥 NÃO faz rethrow, considera como sucesso
+    }
+    
+    // Deletar associações primeiro
+    final associacoesResponse = await _supabase
         .from('produto_categoria')
         .delete()
-        .eq('id_categoria', idCategoria);
+        .eq('id_categoria', idCategoria)
+        .select();  // 🔥 ADICIONAR select() para confirmar execução
     
+    print('🔗 ${associacoesResponse.length} associações removidas');
+    
+    // Depois deletar a categoria
     await _supabase
         .from('categorias')
         .delete()
         .eq('id_categoria', idCategoria);
     
-    print('✅ Categoria deletada do Supabase');
+    print('✅ Categoria $idCategoria deletada do Supabase com sucesso');
     
   } catch (e) {
     print('❌ Erro ao processar delete_categoria: $e');
+    print('   Stack trace: ${StackTrace.current}');  // 🔥 LOG DETALHADO
     rethrow;
   }
   break;
@@ -2682,23 +2709,24 @@ case 'update_quantidade_item':
     
     print('📤 Processando atualização de quantidade offline');
     
-    // Buscar item atual
+    // 1. Buscar item atual e obter id_pedido
     final itemResponse = await _supabase
         .from('itens_pedido')
-        .select('preco_unitario')
+        .select('preco_unitario, id_pedido')  // 🔥 ADICIONAR id_pedido
         .eq('id_item_pedido', idItemPedido)
         .single();
     
     final precoUnitario = (itemResponse['preco_unitario'] as num).toDouble();
+    final idPedido = itemResponse['id_pedido'] as int;  // 🔥 EXTRAIR id_pedido
     final novoSubtotal = novaQuantidade * precoUnitario;
     
-    // Atualizar item
+    // 2. Atualizar item
     await _supabase.from('itens_pedido').update({
       'quantidade': novaQuantidade,
       'subtotal': novoSubtotal,
     }).eq('id_item_pedido', idItemPedido);
     
-    // Ajustar estoque pela diferença
+    // 3. Ajustar estoque pela diferença
     if (diferencaQuantidade > 0) {
       await _supabase.rpc('decrement_stock', params: {
         'product_id': idProduto,
@@ -2711,6 +2739,24 @@ case 'update_quantidade_item':
       });
     }
     
+    // 4. 🔥 CRÍTICO: RECALCULAR TOTAL DO PEDIDO (ESTAVA FALTANDO)
+    final itensResponse = await _supabase
+        .from('itens_pedido')
+        .select('subtotal')
+        .eq('id_pedido', idPedido);
+    
+    final totalCalculado = itensResponse.fold<double>(
+      0.0,
+      (sum, item) => sum + ((item['subtotal'] as num).toDouble()),
+    );
+    
+    await _supabase.from('pedidos').update({
+      'total': totalCalculado,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+      'device_id': _deviceId,
+    }).eq('id_pedido', idPedido);
+    
+    print('💰 Total do pedido recalculado no Supabase: MZN ${totalCalculado.toStringAsFixed(2)}');
     print('✅ Quantidade atualizada no Supabase');
     
   } catch (e) {

@@ -192,33 +192,33 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
       body: Column(
         children: [
           // 🔥 NOVO: Aviso para funcionários (se não podem alterar status)
-          if (!_podeAlterarStatus()) 
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.shade200),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline, color: Colors.orange, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Perfil Funcionário: Você não pode ativar/desativar produtos. Entre em contato com um Gerente ou Administrador.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.orange.shade900,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          // if (!_podeAlterarStatus()) 
+          //   Container(
+          //     width: double.infinity,
+          //     margin: const EdgeInsets.all(16),
+          //     padding: const EdgeInsets.all(12),
+          //     decoration: BoxDecoration(
+          //       color: Colors.orange.shade50,
+          //       borderRadius: BorderRadius.circular(8),
+          //       border: Border.all(color: Colors.orange.shade200),
+          //     ),
+          //     child: Row(
+          //       children: [
+          //         const Icon(Icons.info_outline, color: Colors.orange, size: 20),
+          //         const SizedBox(width: 8),
+          //         Expanded(
+          //           child: Text(
+          //             'Perfil Funcionário: Você não pode ativar/desativar produtos. Entre em contato com um Gerente ou Administrador.',
+          //             style: TextStyle(
+          //               fontSize: 12,
+          //               color: Colors.orange.shade900,
+          //               fontWeight: FontWeight.w500,
+          //             ),
+          //           ),
+          //         ),
+          //       ],
+          //     ),
+          //   ),
           
           // Lista de produtos
           Expanded(

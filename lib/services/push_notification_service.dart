@@ -1,9 +1,9 @@
-//lib/services/push_notification_service.dart
+import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
 import '../main.dart';
-import 'sessao_service.dart'; // 🔥 NOVO
+import 'sessao_service.dart';
 
 class PushNotificationService {
   static final PushNotificationService instance = PushNotificationService._();
@@ -17,45 +17,49 @@ class PushNotificationService {
 
   String? get fcmToken => _fcmToken;
 
+  // 🔥 NOVO: Inicializar com timeout
   Future<void> inicializar() async {
     if (_inicializado) return;
 
     try {
-      // 1️⃣ Solicitar permissões
-      final settings = await _fcm.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
-
-      if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-        print('✅ Permissões FCM concedidas');
-      } else {
-        print('⚠️ Permissões FCM negadas');
-        return;
-      }
-
-      // 2️⃣ Obter token FCM
-      _fcmToken = await _fcm.getToken();
-      print('🔑 FCM Token: $_fcmToken');
-
-      // 3️⃣ Inscrever no tópico "estoque_ruptura"
-      await _fcm.subscribeToTopic('estoque_ruptura');
-      print('📢 Inscrito no tópico: estoque_ruptura');
-
-      // 4️⃣ Configurar notificações locais
-      await _configurarNotificacoesLocais();
-
-      // 5️⃣ Configurar handlers de mensagens
-      _configurarHandlers();
-
-      _inicializado = true;
-      print('✅ PushNotificationService inicializado');
-      
+      await Future.any([
+        _inicializarFCM(),
+        Future.delayed(const Duration(seconds: 8), () {
+          throw TimeoutException('FCM timeout após 8s');
+        }),
+      ]);
     } catch (e) {
-      print('❌ Erro ao inicializar FCM: $e');
+      print('⚠️ FCM não inicializado: $e');
+      // Continuar sem FCM
     }
+  }
+
+  Future<void> _inicializarFCM() async {
+    final settings = await _fcm.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+      provisional: false,
+    );
+
+    if (settings.authorizationStatus != AuthorizationStatus.authorized) {
+      print('⚠️ Permissões FCM negadas');
+      return;
+    }
+
+    print('✅ Permissões FCM concedidas');
+
+    _fcmToken = await _fcm.getToken();
+    print('🔑 FCM Token: $_fcmToken');
+
+    await _fcm.subscribeToTopic('estoque_ruptura');
+    print('📢 Inscrito no tópico: estoque_ruptura');
+
+    await _configurarNotificacoesLocais();
+    _configurarHandlers();
+
+    _inicializado = true;
+    print('✅ PushNotificationService inicializado');
   }
 
   Future<void> _configurarNotificacoesLocais() async {
@@ -78,19 +82,15 @@ class PushNotificationService {
   }
 
   void _configurarHandlers() {
-    // 🔥 FOREGROUND: App aberto
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('📬 Mensagem recebida (foreground): ${message.notification?.title}');
       _mostrarNotificacaoLocal(message);
     });
 
-    // 🔥 BACKGROUND: App minimizado
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       print('📬 Notificação aberta (background): ${message.data}');
       _navegarParaProdutos(message);
     });
-
-    // 🔥 TERMINATED: App fechado (configurado no main.dart)
   }
 
   Future<void> _mostrarNotificacaoLocal(RemoteMessage message) async {
@@ -130,11 +130,9 @@ class PushNotificationService {
     );
   }
 
-  // 🔥 MODIFICADO: Validar sessão antes de navegar (notificação local clicada)
   Future<void> _onNotificationTap(NotificationResponse response) async {
     print('🔔 Notificação local clicada: ${response.payload}');
     
-    // 🔥 VALIDAÇÃO CRÍTICA: Verificar se sessão é válida
     final sessaoValida = await SessaoService.instance.validarSessao();
     
     if (!sessaoValida) {
@@ -143,7 +141,6 @@ class PushNotificationService {
       return;
     }
     
-    // Se sessão válida, processar navegação
     if (response.payload != null) {
       final idProduto = int.tryParse(response.payload!);
       
@@ -154,11 +151,9 @@ class PushNotificationService {
     }
   }
 
-  // 🔥 MODIFICADO: Validar sessão antes de navegar (notificação FCM clicada)
   Future<void> _navegarParaProdutos(RemoteMessage message) async {
     print('📦 Processando navegação: ${message.data}');
     
-    // 🔥 VALIDAÇÃO CRÍTICA: Verificar se sessão é válida
     final sessaoValida = await SessaoService.instance.validarSessao();
     
     if (!sessaoValida) {
@@ -167,7 +162,6 @@ class PushNotificationService {
       return;
     }
     
-    // Se sessão válida, processar navegação
     final idProduto = message.data['id_produto'];
     
     if (idProduto != null) {
@@ -176,43 +170,31 @@ class PushNotificationService {
         arguments: {'id_produto': int.tryParse(idProduto)},
       );
     } else {
-      // Se não tiver id_produto específico, apenas ir para gerenciar produtos
       MyApp.navigatorKey.currentState?.pushReplacementNamed('/gerenciar_produtos');
     }
   }
 
-  // 🔥 NOVO: Método para redirecionar para login
   void _navegarParaLogin() {
-    // Usar addPostFrameCallback para garantir que a navegação ocorra após o frame atual
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = MyApp.navigatorKey.currentContext;
       if (context != null) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/',
-          (route) => false,
-        );
+        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
       }
     });
   }
 
-  // 🔥 NOVO: Método público para processar notificação quando app é aberto do zero (terminated)
-  // Este método deve ser chamado do main.dart após verificar getInitialMessage()
   Future<void> processarNotificacaoInicial(RemoteMessage message) async {
     print('📬 Processando notificação inicial (app terminated): ${message.data}');
     
-    // Dar tempo para o app inicializar completamente
     await Future.delayed(const Duration(milliseconds: 500));
     
-    // 🔥 VALIDAÇÃO CRÍTICA: Verificar se sessão é válida
     final sessaoValida = await SessaoService.instance.validarSessao();
     
     if (!sessaoValida) {
       print('⚠️ Sessão inválida - usuário precisa fazer login primeiro');
-      // Não navegar - deixar o splash/main redirecionar para login
       return;
     }
     
-    // Se sessão válida, processar navegação
     await _navegarParaProdutos(message);
   }
 
@@ -221,7 +203,5 @@ class PushNotificationService {
     print('❌ Desinscrito do tópico: $topico');
   }
 
-  void dispose() {
-    // Cleanup se necessário
-  }
+  void dispose() {}
 }

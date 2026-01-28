@@ -119,17 +119,19 @@ Future<void> _handleLogin() async {
                       color: Colors.deepOrange.shade50,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
-                      Icons.restaurant_menu,
-                      size: 60,
-                      color: Colors.deepOrange,
-                    ),
+                    // Substitua o trecho dentro do Container (Logo ou Ícone)
+child: Image.asset(
+  'assets/icon/app_icon.png',
+  width: 60,
+  height: 60,
+  fit: BoxFit.contain,
+),
                   ),
                   const SizedBox(height: 24),
 
                   // Título
                   const Text(
-                    'Bar Digital POS',
+                    'Gestor 365',
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,

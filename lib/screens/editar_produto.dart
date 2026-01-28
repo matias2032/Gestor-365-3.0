@@ -35,16 +35,18 @@ class _EditarProdutoScreenState extends State<EditarProdutoScreen> {
   final TextEditingController _precoController = TextEditingController();
   final TextEditingController _precoPromoController = TextEditingController();
   final TextEditingController _estoqueController = TextEditingController();
-  final TextEditingController _motivoEstoqueController = TextEditingController(); // 🔥 NOVO
-    final SupabaseSyncService _syncService = SupabaseSyncService.instance;
+  final TextEditingController _motivoEstoqueController = TextEditingController();
+  final SupabaseSyncService _syncService = SupabaseSyncService.instance;
 
   Produto? _produtoOriginal; 
   List<ProdutoImagem> _imagensAtuais = [];
   List<TextEditingController> _imagemControllers = []; 
   
   bool _ativo = true;
-  // bool _isDestaque = false;
   bool _isLoading = true;
+
+  // 🔥 NOVO: Perfil do usuário
+  int? _perfilUsuario;
 
   // Categorias
   List<Categoria> _todasCategorias = [];
@@ -60,6 +62,7 @@ class _EditarProdutoScreenState extends State<EditarProdutoScreen> {
   @override
   void initState() {
     super.initState();
+    _perfilUsuario = SessaoService.instance.usuarioAtual?.idPerfil; // 🔥 NOVO
     _loadProdutoData();
   }
 
@@ -70,7 +73,7 @@ class _EditarProdutoScreenState extends State<EditarProdutoScreen> {
     _precoController.dispose();
     _precoPromoController.dispose();
     _estoqueController.dispose();
-    _motivoEstoqueController.dispose(); // 🔥 NOVO
+    _motivoEstoqueController.dispose();
 
     for (var controller in _imagemControllers) {
       controller.dispose();
@@ -78,26 +81,37 @@ class _EditarProdutoScreenState extends State<EditarProdutoScreen> {
     super.dispose();
   }
 
-void _checkPromotionalStatus() {
-  final categoriaPromocao = _todasCategorias.firstWhereOrNull(
-    (c) => c.nome == _nomeCategoriaPromocao,
-  );
+  // 🔥 NOVOS MÉTODOS: Controle de permissões
+  bool _campoHabilitado() {
+    // Funcionário (perfil 3) só pode editar estoque e motivo
+    // Admin (1) e Gerente (2) podem editar tudo
+    return _perfilUsuario != 3;
+  }
 
-  bool mustShow = false;
-  if (categoriaPromocao != null && categoriaPromocao.id != null) {
-    mustShow = _categoriasSelecionadas.contains(categoriaPromocao.id!);
+  bool _campoEstoqueHabilitado() {
+    // Todos os perfis podem editar estoque
+    return true;
   }
-  
-  if (_showPrecoPromocionalField != mustShow) {
-    setState(() {
-      _showPrecoPromocionalField = mustShow;
-      // 🔥 RESET: Limpar campo ao desassociar categoria
-      if (!_showPrecoPromocionalField) {
-        _precoPromoController.clear();
-      }
-    });
+
+  void _checkPromotionalStatus() {
+    final categoriaPromocao = _todasCategorias.firstWhereOrNull(
+      (c) => c.nome == _nomeCategoriaPromocao,
+    );
+
+    bool mustShow = false;
+    if (categoriaPromocao != null && categoriaPromocao.id != null) {
+      mustShow = _categoriasSelecionadas.contains(categoriaPromocao.id!);
+    }
+    
+    if (_showPrecoPromocionalField != mustShow) {
+      setState(() {
+        _showPrecoPromocionalField = mustShow;
+        if (!_showPrecoPromocionalField) {
+          _precoPromoController.clear();
+        }
+      });
+    }
   }
-}
 
   Future<void> _loadProdutoData() async {
     try {
@@ -116,7 +130,6 @@ void _checkPromotionalStatus() {
         _estoqueOriginal = produto.quantidadeEstoque;
         
         _ativo = produto.ativo == 1;
-        // _isDestaque = produto.isDestaque == 1;
         
         _todasCategorias = todasCategorias;
         _categoriasSelecionadas = produto.categoriasAssociadas?.map((c) => c.id!).toSet() ?? {};
@@ -177,7 +190,6 @@ void _checkPromotionalStatus() {
     }
   }
 
-  // 🔥 ATUALIZADO: Agora usa o motivo do campo de texto
   Future<void> _registrarMovimentoSeNecessario(int novoEstoque) async {
     if (_estoqueOriginal == null || _estoqueOriginal == novoEstoque) {
       return;
@@ -188,7 +200,6 @@ void _checkPromotionalStatus() {
       throw Exception('Usuário não identificado');
     }
 
-    // 🔥 NOVO: Usa o motivo do campo ou valor padrão
     final motivo = _motivoEstoqueController.text.trim().isEmpty 
         ? 'Edição manual do produto'
         : _motivoEstoqueController.text.trim();
@@ -218,18 +229,17 @@ void _checkPromotionalStatus() {
     try {
         final novoEstoque = int.tryParse(_estoqueController.text.trim());
         
-      final produtoAtualizado = _produtoOriginal!.copyWith(
-  nome: _nomeController.text.trim(),
-  descricao: _descricaoController.text.trim().isEmpty ? null : _descricaoController.text.trim(),
-  preco: double.tryParse(_precoController.text.replaceAll(',', '.')) ?? 0.0,
-  // 🔥 RESET GARANTIDO: Se não mostrar campo = NULL no BD
-  precoPromocional: _showPrecoPromocionalField && _precoPromoController.text.isNotEmpty
-      ? double.tryParse(_precoPromoController.text.replaceAll(',', '.'))
-      : null, // 🔥 IMPORTANTE: Define como NULL para resetar no BD
-  ativo: _ativo ? 1 : 0,
-  // isDestaque: _isDestaque ? 1 : 0,
-  quantidadeEstoque: novoEstoque,
-);
+        final produtoAtualizado = _produtoOriginal!.copyWith(
+          nome: _nomeController.text.trim(),
+          descricao: _descricaoController.text.trim().isEmpty ? null : _descricaoController.text.trim(),
+          preco: double.tryParse(_precoController.text.replaceAll(',', '.')) ?? 0.0,
+          precoPromocional: _showPrecoPromocionalField && _precoPromoController.text.isNotEmpty
+              ? double.tryParse(_precoPromoController.text.replaceAll(',', '.'))
+              : null,
+          ativo: _ativo ? 1 : 0,
+          quantidadeEstoque: novoEstoque,
+        );
+
         final idsCategorias = _categoriasSelecionadas.toList();
         final List<ProdutoImagem> imagensParaSalvar = [];
 
@@ -270,7 +280,6 @@ void _checkPromotionalStatus() {
 
         await _syncService.updateProduto(produtoAtualizado, idsCategorias, imagensParaSalvar);
   
-        // 🔥 ADICIONAR LOG
         await ServicoLogs.instance.registrarEdicaoProduto(_nomeController.text.trim());
 
         if (mounted) {
@@ -295,18 +304,22 @@ void _checkPromotionalStatus() {
     final isPrincipal = (index == 0) && caminho.isNotEmpty; 
 
     return Padding(
-       padding: const EdgeInsets.only(bottom: 12.0),
-        child: Row(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: TextFormField(
               controller: controller,
-              readOnly: true, 
+              readOnly: true,
+              enabled: _campoHabilitado(), // 🔥 NOVO
               decoration: InputDecoration(
                 labelText: isPrincipal ? 'Caminho Imagem Principal' : 'Caminho Imagem Adicional ${index + 1}',
                 hintText: 'Clique para selecionar o arquivo...',
                 border: const OutlineInputBorder(),
+                disabledBorder: OutlineInputBorder( // 🔥 NOVO
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
               ),
               onChanged: (value) {
                 setState(() {}); 
@@ -314,18 +327,23 @@ void _checkPromotionalStatus() {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.folder_open, color: Colors.blue),
-            onPressed: () async {
-              final path = await _pickFileReal();
-              if (path != null) {
-                setState(() {
-                  controller.text = path;
-                  if (index == _imagemControllers.length - 1) {
-                    _imagemControllers.add(TextEditingController());
+            icon: Icon(
+              Icons.folder_open, 
+              color: _campoHabilitado() ? Colors.blue : Colors.grey, // 🔥 NOVO
+            ),
+            onPressed: _campoHabilitado() // 🔥 NOVO
+                ? () async {
+                    final path = await _pickFileReal();
+                    if (path != null) {
+                      setState(() {
+                        controller.text = path;
+                        if (index == _imagemControllers.length - 1) {
+                          _imagemControllers.add(TextEditingController());
+                        }
+                      });
+                    }
                   }
-                });
-              }
-            },
+                : null,
           ),
         ],
       ),
@@ -354,18 +372,62 @@ void _checkPromotionalStatus() {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('Dados Principais', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+              
+              // 🔥 NOVO: Aviso para funcionários
+              if (_perfilUsuario == 3) ...[
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Perfil Funcionário: Você só pode editar a quantidade em estoque e o motivo da alteração.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.orange.shade900,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              
               const Divider(),
               
               TextFormField(
                 controller: _nomeController,
-                decoration: const InputDecoration(labelText: 'Nome do Produto', border: OutlineInputBorder()),
+                enabled: _campoHabilitado(), // 🔥 NOVO
+                decoration: InputDecoration(
+                  labelText: 'Nome do Produto', 
+                  border: const OutlineInputBorder(),
+                  disabledBorder: OutlineInputBorder( // 🔥 NOVO
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                ),
                 validator: (value) => (value == null || value.isEmpty) ? 'O nome é obrigatório.' : null,
               ),
               const SizedBox(height: 16),
               
               TextFormField(
                 controller: _descricaoController,
-                decoration: const InputDecoration(labelText: 'Descrição (Opcional)', border: OutlineInputBorder()),
+                enabled: _campoHabilitado(), // 🔥 NOVO
+                decoration: InputDecoration(
+                  labelText: 'Descrição (Opcional)', 
+                  border: const OutlineInputBorder(),
+                  disabledBorder: OutlineInputBorder( // 🔥 NOVO
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                ),
                 maxLines: 3,
               ),
               const SizedBox(height: 16),
@@ -375,7 +437,15 @@ void _checkPromotionalStatus() {
                   Expanded(
                     child: TextFormField(
                       controller: _precoController,
-                      decoration: const InputDecoration(labelText: 'Preço', border: OutlineInputBorder(), prefixText: 'MZN '),
+                      enabled: _campoHabilitado(), // 🔥 NOVO
+                      decoration: InputDecoration(
+                        labelText: 'Preço', 
+                        border: const OutlineInputBorder(), 
+                        prefixText: 'MZN ',
+                        disabledBorder: OutlineInputBorder( // 🔥 NOVO
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
                       keyboardType: TextInputType.number,
                       validator: (value) {
                         final preco = double.tryParse(value?.replaceAll(',', '.') ?? '');
@@ -390,7 +460,15 @@ void _checkPromotionalStatus() {
                       Expanded(
                         child: TextFormField(
                           controller: _precoPromoController,
-                          decoration: const InputDecoration(labelText: 'Preço Promocional', border: OutlineInputBorder(), prefixText: 'MZN '),
+                          enabled: _campoHabilitado(), // 🔥 NOVO
+                          decoration: InputDecoration(
+                            labelText: 'Preço Promocional', 
+                            border: const OutlineInputBorder(), 
+                            prefixText: 'MZN ',
+                            disabledBorder: OutlineInputBorder( // 🔥 NOVO
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                          ),
                           keyboardType: TextInputType.number,
                           validator: (value) {
                               if (_showPrecoPromocionalField && (value == null || value.isEmpty)) {
@@ -409,9 +487,10 @@ void _checkPromotionalStatus() {
               ),
               const SizedBox(height: 16),
 
-              // Campo de estoque com indicador visual
+              // Campo de estoque (SEMPRE HABILITADO)
               TextFormField(
                 controller: _estoqueController,
+                enabled: _campoEstoqueHabilitado(), // 🔥 SEMPRE HABILITADO
                 decoration: InputDecoration(
                   labelText: 'Quantidade em Estoque',
                   border: const OutlineInputBorder(),
@@ -445,7 +524,7 @@ void _checkPromotionalStatus() {
                 },
               ),
               
-              // 🔥 NOVO: Campo de Motivo (aparece quando há alteração)
+              // Campo de Motivo (aparece quando há alteração)
               if (_estoqueAlterado) ...[
                 const SizedBox(height: 16),
                 TextFormField(
@@ -492,19 +571,12 @@ void _checkPromotionalStatus() {
                     child: SwitchListTile(
                       title: const Text('Ativo'),
                       value: _ativo,
-                      onChanged: (val) => setState(() => _ativo = val),
+                      onChanged: _campoHabilitado() // 🔥 NOVO
+                          ? (val) => setState(() => _ativo = val)
+                          : null,
                       tileColor: Colors.deepOrange.shade50,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  // Expanded(
-                  //   child: SwitchListTile(
-                  //     title: const Text('Destaque'),
-                  //     value: _isDestaque,
-                  //     onChanged: (val) => setState(() => _isDestaque = val),
-                  //     tileColor: Colors.deepOrange.shade50,
-                  //   ),
-                  // ),
                 ],
               ),
               const SizedBox(height: 24),
@@ -525,18 +597,21 @@ void _checkPromotionalStatus() {
                     return FilterChip(
                       label: Text(categoria.nome),
                       selected: isSelected,
-                      onSelected: (selected) {
-                        setState(() {
-                          if (selected) {
-                            _categoriasSelecionadas.add(categoria.id!);
-                          } else {
-                            _categoriasSelecionadas.remove(categoria.id!);
-                          }
-                          _checkPromotionalStatus();
-                        });
-                      },
+                      onSelected: _campoHabilitado() // 🔥 NOVO
+                          ? (selected) {
+                              setState(() {
+                                if (selected) {
+                                  _categoriasSelecionadas.add(categoria.id!);
+                                } else {
+                                  _categoriasSelecionadas.remove(categoria.id!);
+                                }
+                                _checkPromotionalStatus();
+                              });
+                            }
+                          : null,
                       selectedColor: Colors.deepOrange.shade200,
                       checkmarkColor: Colors.white,
+                      disabledColor: Colors.grey.shade300, // 🔥 NOVO
                     );
                   }).toList(),
                 ),
@@ -552,7 +627,7 @@ void _checkPromotionalStatus() {
                 return _buildImageField(entry.value, entry.key);
               }).toList(),
               
-              if (_imagemControllers.last.text.isNotEmpty)
+              if (_imagemControllers.last.text.isNotEmpty && _campoHabilitado()) // 🔥 NOVO
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(

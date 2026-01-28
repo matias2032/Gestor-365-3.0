@@ -53,6 +53,7 @@ flutter_icons:
   ios: true
   image_path: "assets/icon/app_icon.png"
 
+
 # Esta seção deve ficar aqui, fora do bloco 'flutter:'
 dependency_overrides:
   workmanager: ^0.6.0
@@ -61,6 +62,9 @@ dependency_overrides:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/icon/
 
 # # ==========================================
 # # CONFIGURAÇÃO DA NATIVE SPLASH SCREEN

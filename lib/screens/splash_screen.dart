@@ -148,15 +148,19 @@ Future<void> _continuarInicializacao({required bool isOnline}) async {
   print('✅ Supabase inicializado');
   await Future.delayed(const Duration(milliseconds: 400));
 
-  // 4️⃣ Inicializar Firebase/FCM (40%)
-  await _updateProgress(0.40, 'Configurando notificações push...');
+// 4️⃣ Inicializar Firebase/FCM (40%) - CONDICIONALMENTE
+await _updateProgress(0.40, 'Configurando notificações push...');
+if (isOnline) {
   try {
     await PushNotificationService.instance.inicializar();
     print('✅ FCM inicializado');
   } catch (e) {
     print('⚠️ FCM não disponível: $e');
   }
-  await Future.delayed(const Duration(milliseconds: 300));
+} else {
+  print('⏭️ FCM pulado (modo offline)');
+}
+await Future.delayed(const Duration(milliseconds: 300));
 
   // 5️⃣ Inicializar Banco de Dados Local (55%)
   await _updateProgress(0.55, 'Preparando banco de dados...');
@@ -318,16 +322,21 @@ Future<void> _continuarInicializacao({required bool isOnline}) async {
               ),
             ],
           ),
-          child: const Icon(
-            Icons.restaurant_menu,
-            size: 60,
-            color: Colors.white,
-          ),
+          // Substitua o trecho dentro do Container em _buildLogo()
+child: Padding(
+  padding: const EdgeInsets.all(20.0), // Ajuste o padding se necessário para o tamanho do seu PNG
+  child: Image.asset(
+    'assets/icon/app_icon.png',
+    width: 60,
+    height: 60,
+    fit: BoxFit.contain,
+  ),
+),
         ),
         const SizedBox(height: 24),
         
         const Text(
-          'Bar Digital POS',
+          'Gestor 365',
           style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.bold,
@@ -338,7 +347,7 @@ Future<void> _continuarInicializacao({required bool isOnline}) async {
         const SizedBox(height: 8),
         
         Text(
-          'Sistema de Gestão',
+          'Gestão total, todos os dias',
           style: TextStyle(
             fontSize: 16,
             color: Colors.white.withOpacity(0.9),

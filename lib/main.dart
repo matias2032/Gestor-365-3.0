@@ -109,56 +109,99 @@ class MyApp extends StatefulWidget {
 
 class ConectividadeListener {
   static bool _dialogAberto = false;
+  static bool _processandoReconexao = false; // 🔥 NOVO: Evitar múltiplas sincronizações
   
   static void inicializar(BuildContext context) {
-    // 🔥 MODIFICADO: Listener agora recebe 2 parâmetros
     ConectividadeService.instance.addListener((isOnline, forcarSync) {
-      _onConnectivityChange(context, isOnline, forcarSync);
+      // 🔥 CRÍTICO: Usar addPostFrameCallback para garantir que MaterialApp está montado
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) {
+          _onConnectivityChange(context, isOnline, forcarSync);
+        }
+      });
     });
   }
   
   static void _onConnectivityChange(
     BuildContext context, 
     bool isOnline, 
-    bool forcarSync, // 🔥 NOVO PARÂMETRO
-  ) {
+    bool forcarSync,
+  ) async {
     final service = ConectividadeService.instance;
     
-    // Se voltou ONLINE
+    // ==========================================
+    // VOLTOU ONLINE
+    // ==========================================
     if (isOnline) {
       _mostrarSnackBar(
         context,
-        'Conexão restaurada!',
+        '🌐 Conexão restaurada!',
         Colors.green,
         Icons.wifi,
       );
       _dialogAberto = false;
       
-      // 🔥 NOVO: Só sincronizar se flag estiver true
-      if (forcarSync) {
-        print('🔄 Forçando sincronização completa (passou muito tempo offline)');
-        _sincronizarAposReconexao();
+      // 🔥 NOVO: Sincronização inteligente COM PROTEÇÃO contra múltiplas execuções
+      if (forcarSync && !_processandoReconexao) {
+        _processandoReconexao = true;
+        
+        print('🔄 Forçando sincronização completa (passou >30min offline)');
+        
+        try {
+          await _sincronizarAposReconexao();
+        } catch (e) {
+          print('❌ Erro na sincronização: $e');
+          
+          if (context.mounted) {
+            _mostrarSnackBar(
+              context,
+              '⚠️ Erro na sincronização: ${e.toString().split(':').first}',
+              Colors.orange,
+              Icons.warning,
+            );
+          }
+        } finally {
+          _processandoReconexao = false;
+        }
+      } else if (!forcarSync) {
+        print('✅ Conexão restaurada - dados recentes, sem necessidade de sync');
       } else {
-        print('✅ Conexão restaurada, mas sincronização recente - usando cache');
+        print('⏳ Sincronização já em andamento...');
       }
       
       return;
     }
     
-    // Se ficou OFFLINE (resto do código igual)
+    // ==========================================
+    // FICOU OFFLINE
+    // ==========================================
     final rotaAtual = ModalRoute.of(context)?.settings.name;
     
-    if (!service.modoOfflineManual && 
-        !_dialogAberto && 
-        rotaAtual != '/splash') {
-      _dialogAberto = true;
-      
-      ConectividadeDialog.mostrar(
+    // Não mostrar dialog em rotas públicas ou se já está aberto
+    if (service.modoOfflineManual || 
+        _dialogAberto || 
+        rotaAtual == '/splash' ||
+        rotaAtual == '/' ||
+        rotaAtual == '/primeira_troca_senha') {
+      return;
+    }
+    
+    // 🔥 VALIDAR CONTEXTO antes de mostrar dialog
+    if (!context.mounted) {
+      print('⚠️ Contexto desmontado - não é possível mostrar dialog');
+      return;
+    }
+    
+    _dialogAberto = true;
+    
+    try {
+      await ConectividadeDialog.mostrar(
         context,
         isPreSplash: false,
         onReconectar: () async {
           _dialogAberto = false;
           
+          // Validar sessão se estiver logado
           if (SessaoService.instance.isLogado) {
             final sessaoValida = await SessaoService.instance.validarSessao();
             
@@ -174,29 +217,50 @@ class ConectividadeListener {
           _dialogAberto = false;
           _mostrarSnackBar(
             context,
-            'Modo offline ativado. Funcionalidades limitadas.',
+            '✈️ Modo offline ativado. Funcionalidades limitadas.',
             Colors.orange,
             Icons.airplanemode_active,
           );
         },
-      ).then((_) {
-        _dialogAberto = false;
-      });
+      );
+    } catch (e) {
+      print('❌ Erro ao mostrar dialog: $e');
+      _dialogAberto = false;
+      
+      // Fallback: mostrar apenas SnackBar
+      if (context.mounted) {
+        _mostrarSnackBar(
+          context,
+          '📵 Sem conexão - Modo offline',
+          Colors.red,
+          Icons.wifi_off,
+        );
+      }
     }
   }
   
-  // 🔥 NOVO MÉTODO: Sincronização inteligente
+  // 🔥 MÉTODO DE SINCRONIZAÇÃO INTELIGENTE
   static Future<void> _sincronizarAposReconexao() async {
-    try {
-      await SupabaseSyncService.instance.syncOfflineQueue();
-      await SupabaseSyncService.instance.syncAll();
+    print('🔄 Iniciando sincronização pós-reconexão...');
+    
+    final syncService = SupabaseSyncService.instance;
+    
+    // 1. Processar fila offline primeiro
+    if (syncService.pendingOperations > 0) {
+      print('📤 Processando ${syncService.pendingOperations} operações offline...');
+      await syncService.syncOfflineQueue();
+    }
+    
+    // 2. Sincronização completa apenas se fila vazia
+    if (syncService.pendingOperations == 0) {
+      print('🔄 Iniciando sincronização completa...');
+      await syncService.syncAll();
       
-      // Marcar que foi feita sync completa
+      // Marcar sync completa
       ConectividadeService.instance.marcarSyncCompleta();
-      
-      print('✅ Sincronização pós-reconexão concluída');
-    } catch (e) {
-      print('❌ Erro na sincronização: $e');
+      print('✅ Sincronização completa concluída');
+    } else {
+      print('⚠️ Ainda há ${syncService.pendingOperations} operações pendentes');
     }
   }
   
@@ -208,26 +272,29 @@ class ConectividadeListener {
   ) {
     if (!context.mounted) return;
     
+    ScaffoldMessenger.of(context).hideCurrentSnackBar(); // 🔥 LIMPAR ANTERIORES
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
-            Icon(icone, color: Colors.white),
+            Icon(icone, color: Colors.white, size: 20),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 mensagem,
-                style: const TextStyle(fontSize: 14),
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
             ),
           ],
         ),
         backgroundColor: cor,
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 3),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
         ),
+        margin: const EdgeInsets.all(16),
       ),
     );
   }

@@ -2,43 +2,43 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// 🔥 CREDENCIAIS FCM (Service Account) - ✅ VALIDADAS
+// 🔥 CREDENCIAIS GESTOR365PUSH1 - ATUALIZADAS
 const FCM_SERVICE_ACCOUNT = {
-  project_id: "barestoquepush1",
+  project_id: "gestor365push1",
+  client_email: "firebase-adminsdk-fbsvc@gestor365push1.iam.gserviceaccount.com",
   private_key: `-----BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC/hfILXET7j04I
-aIkPCmWZnexcgO0vgfvyE9WvipI5nltaGxgzK37KMaIxVjFQvqbPwJLhgf6CZ4uH
-6Nf6vsHa+2EyF7CJp218b078WJ60gKfyVKL7OxyomIcDMxY1SlASHUuWq0yKVMOF
-aYaIXQEc2d7Lwb3WkWEUlgDQUgPuTYHm1T96hqsgLtFP9cnobRlh1skR2Ic49bRs
-ZBLzFIhZhEX0Ii5Q+MG/ZAzBng3d5AmCEotEtV2LuCJnazKKrEkx4oX/8aU1zAOs
-a2wyiZmTq8SQH8Spd57EC3vDnvQR60ckKG8gBnUQE8vVHjiDa1qMAUbJOz7nUxnS
-wH7DL30zAgMBAAECggEAD2Ug87DTCrWWPC7K9Z6MVDDRkw36Atub+PWHM7kbz+3e
-wftzkolog7BBrV2UUT1CA2kjZWUhpDHWkXIyCkHTK1sRkQk+c5I1xs7btoUZHMFK
-vrv27eLuhs7b63Hr0xTKIuqf7NiQKn5tyQeWfNedA0iwFAjazaiZ+SGlpxkwn7MP
-hWmOqLtDMCAQlYaN5jB4ss0LIGP9HAzoG0RwKcLvf0MEi0S3hFD/qe5xIyBDu1mo
-xDH4i6fYc5NV6PODGe5af9bX0gkqs+WPtTYdjhTNZeW5aHWEURM2qzQZgM8QS6iA
-8cxVAP8XuWLx8C/rmHAWWSDXUk15UG82sCuPkJwZAQKBgQDx3nm9SVRRJMAdLFBw
-kyX1RN158P5GtXoCzMexaIfhgF+1P1+ZzHxM1lOhxx+zfUkRQQsQnIS4yWparZgl
-AiITeS0K3GX4C/r+Icy+gsdDMqIixuDzZewc8RDLWVU4im3oC43ri1UxgVksOVZG
-betFIeFu3glvZU67tWI5y17YUwKBgQDKtnh3x1wluS9NCjlNDQwabfI3u5952qmP
-Z2iCSORzbMAUYquCAEgrSrxLzSJ3W99i4RD3wmmXkbgI1GKyr+22S5iI5a82WELA
-/AzCFkcgA/jBK3XKI+I2rPC9yIkMEK8aj+Q+H0gRlAq9x57xGDyxP8nntIjpdlQb
-Rw0H7I6roQKBgQCazRJLpNgzSvsucMNXGcbMkPPTbPvBk7rwedJBaK63FCutXE86
-p1bS8sX6H/DZNxGB2ohTbGnBvx+zw7FB1niqz/6VGfSlaj2NU2KweBFCn/CHo5Qs
-FAqnh16BV76kfmzTfDmsDLRNCAVjuZrPXuCakZGwHKobQtK+btvcM56TgwKBgAYV
-ifIWYrajIz9NskCUxqs4Z4+yquuuW255bRKT+39XYUB7YahqN8BM4u/nfURV1pOS
-K78z75VkA0EIltnEG/9fr3lUY3jfF0nRhtSAdKwKUnoBwuxJPW3krOkVTr+09Hx4
-myIeMDyO0++0QRn9Xzz2rCmvKnjPW2DiNgrp17JhAoGActMqvHM4Pg0D3Dddpj9h
-U/8/1/8hvQvvIvDSRDvIPTMAlU1SR+4Qn4MNxN+cnM4rLcojpmueJ4TbcOti1njD
-pasF+KgwWQwgHQ/7XS/z/rBchIwy912RUdaYv9rZxtNrXF9msliamQxX9yHpyqHe
-XsOLDgka2bV950tJDzXU+6M=
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDVCKuVo7jZwqmR
+MZNopnlaEsjHTlnTkZgjnGpnAqt2wBt+pNRoK80WgUC5PyaHSq1hrjKvf3T8s0j7
+LRw6YjoFc3KRcSMpNLIHPeIzOHuk5PIeq0433fKjoIbzaJ3h/mjnbPcudKHXvdZW
+qyU/mFnudlmPPrJMmLgSwVAgNbvTMsQIRIPPjlTrAr38fireGbIZYqvNrD0mf4u3
+u/j1qHURK7ttYBuDtBgmLSvhUZt+tswiMzF+X08be/Ps9eSVvp1Ql2Qeqwv4gclP
+EUrmfeFHBV3Ui76Mfe62KL98CRcCB4vJxzE/qhrykitS4/V7eSyzsqJIGpB8cER5
+Dq96h30RAgMBAAECggEABpj0RGf7vm21heg6xBXMwg39HxQFeuSCSU8LqglGgWDZ
+cSJ+bAP4P+NMm3gR08SLqk/kZLQ+LaHJR7MZ0dKPMLJGuOufrsPhpBEF73dnN9/5
+whqky1zhqfDboQ/rPM+d1NX2cT8+MGHiEJDQEGBB371VUHb8+1uK7tTDDB5R5OxZ
+8MYWNpBq28Nkf6oQKB66iVl1EB0A/4myfkHJlzjjqfBwK+bPBbWBn9Wj3cG6Yy89
+H0yxeImNwksBtHBMF7q0h1qxHlqY4OA7J73iOjjF0f42v7deu0adPZd4ScLC0wnw
+X5sSP7eLqwsrIyE6EEmWL8ughXn3ebHSlbi4zE3jKQKBgQD4tUogU98+7/CDAUFd
++IOsZwKRdNp28Glzmt2UewiJ7mb6JOsVPS095qhKn+4j0WUOsw7Z1d97dYYewXps
++idNCSSo9PVb8M4w7PKhZ8BvZgJ1TORpGgkWHdtGtIYww1V95PtfGvM/E++Wzl/K
+4Thw6v1PqmtvrO+GV0dEyjRzyQKBgQDbR59u/UiVBRUxZ2tNbvU3VePf0B2k6EER
+0+XOYY774rpl88876Sd4gBi+dMJxNUHvUHvT8pk8h8P6u4I2GEQk/h9ASgT+wWKV
+T++mgH11kPn8S0jeI8EDAyQhrA5Dn5QoB2UOwrha+76rPy1AyL619x3goI4af9g+
+KnGAuhuTCQKBgF/m0BGNJd2H+g8aEdGhfWyiP/xEueT5KUB5rA2QL6e4NR8p0zha
+YbKn2acE6ngHS1eSthxLeySJGdGMO6AACd2LtAYuhtoQDgIRrDGO50ZNaI9AuibI
+8k4D70ThYYk2GSY1gLSYmMlu74kQRSHfHLt18X2hslHatnXv+7xL2FP5AoGBAM9u
+lZe86mhuAnpVxt/dUwMhsQsMKL7TJprixMXS7BvDg2jmluepy7jmFII2manWI6Vr
+kXgSSntEQ1RxBOB/XBdSfeWnH8qOzd9JWv87FXOdzZ2o6imZ0QA0fH2N8YBu+QxU
+0niAIz2OX/RHM1vRivc/6XeQ6lyPC9Ti+bQ4WdVhAoGBAO5zgPqJs4vFnEYdnhFs
+aoH8HcZfllM2Y5eqT5OPYeXWXX47QyB+r0gb7nE2nfNika7xrQYbGsLTvCvm963S
+BH26qGAzzKeTbctOsRuwZsF4w/Y7acNj9ZDYbNXS1dFhp9RelwqZXe+WYT9wO1eG
+0IA+xw068wpDxDDPENdnAtKh
 -----END PRIVATE KEY-----`,
-  client_email: "firebase-adminsdk-fbsvc@barestoquepush1.iam.gserviceaccount.com",
 };
 
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 
-// 🔥 GERAR ACCESS TOKEN JWT
+// 🔥 FUNÇÃO AUXILIAR: GERAR ACCESS TOKEN JWT
 async function getAccessToken(): Promise<string> {
   const header = { alg: "RS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
@@ -51,20 +51,17 @@ async function getAccessToken(): Promise<string> {
     iat: now,
   };
 
-  // Criar JWT
   const encodedHeader = btoa(JSON.stringify(header));
   const encodedPayload = btoa(JSON.stringify(payload));
   const unsignedToken = `${encodedHeader}.${encodedPayload}`;
 
-  // Assinar com private_key
   const encoder = new TextEncoder();
   const data = encoder.encode(unsignedToken);
   
-  // Importar chave privada
   const pemContents = FCM_SERVICE_ACCOUNT.private_key
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\n/g, "");
+    .replace(/\s/g, ""); // Remove espaços e quebras de linha
   
   const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
   
@@ -81,7 +78,6 @@ async function getAccessToken(): Promise<string> {
   
   const jwt = `${unsignedToken}.${signatureBase64}`;
 
-  // Trocar JWT por Access Token
   const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -92,15 +88,12 @@ async function getAccessToken(): Promise<string> {
   });
 
   const tokenData = await tokenResponse.json();
-  
-  if (!tokenData.access_token) {
-    throw new Error(`Falha ao obter access token: ${JSON.stringify(tokenData)}`);
-  }
+  if (!tokenData.access_token) throw new Error(`Falha no token: ${JSON.stringify(tokenData)}`);
   
   return tokenData.access_token;
 }
 
-// 🔥 ENVIAR NOTIFICAÇÃO FCM
+// 🔥 ENVIAR NOTIFICAÇÃO
 async function sendFCMNotification(accessToken: string, productData: any) {
   const message = {
     message: {
@@ -112,24 +105,7 @@ async function sendFCMNotification(accessToken: string, productData: any) {
       data: {
         id_produto: productData.id_produto.toString(),
         nome_produto: productData.nome_produto,
-        quantidade: productData.quantidade_estoque.toString(),
         tipo: "ruptura_estoque",
-      },
-      android: {
-        priority: "high",
-        notification: {
-          sound: "default",
-          color: "#FF0000",
-          channel_id: "alerta_ruptura",
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: "default",
-            badge: 1,
-          },
-        },
       },
     },
   };
@@ -146,63 +122,32 @@ async function sendFCMNotification(accessToken: string, productData: any) {
     }
   );
 
-  const result = await response.json();
-  
-  if (!response.ok) {
-    throw new Error(`FCM API error: ${JSON.stringify(result)}`);
-  }
-  
-  return result;
+  return await response.json();
 }
 
-// 🔥 HANDLER PRINCIPAL
+// 🔥 HANDLER PRINCIPAL (SERVE)
 serve(async (req) => {
-  // CORS headers
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 
-  // Handle preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders, status: 204 });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders, status: 204 });
 
   try {
-    const { id_produto, nome_produto, quantidade_estoque } = await req.json();
-
-    console.log(`📦 Processando ruptura: Produto ${id_produto} - ${nome_produto}`);
-
-    // Validação
-    if (!id_produto || !nome_produto) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Dados inválidos" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
-    }
-
-    // Obter access token
+    const { id_produto, nome_produto } = await req.json();
     const accessToken = await getAccessToken();
+    const result = await sendFCMNotification(accessToken, { id_produto, nome_produto });
 
-    // Enviar notificação
-    const result = await sendFCMNotification(accessToken, {
-      id_produto,
-      nome_produto,
-      quantidade_estoque: quantidade_estoque ?? 0,
+    return new Response(JSON.stringify({ success: true, result }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200,
     });
-
-    console.log("✅ Notificação enviada:", result);
-
-    return new Response(
-      JSON.stringify({ success: true, message: "Notificação enviada", result }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-    );
   } catch (error) {
-    console.error("❌ Erro ao enviar notificação:", error);
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-    );
+    return new Response(JSON.stringify({ success: false, error: error.message }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
+    });
   }
 });

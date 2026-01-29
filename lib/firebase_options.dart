@@ -52,19 +52,20 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBHYfZiDHKu5MnUFaUyqM5HAof38pJy45g',
-    appId: '1:92735310654:android:d70ca815f0028c2b0b7a6f',
-    messagingSenderId: '92735310654',
-    projectId: 'barestoquepush1',
-    storageBucket: 'barestoquepush1.firebasestorage.app',
+    apiKey: 'AIzaSyC5p3ISXWUb49L41GqthVz2Jc0POqtumCs',
+    appId: '1:1076602142855:android:f5a4752311320edbae7822',
+    messagingSenderId: '1076602142855',
+    projectId: 'gestor365push1',
+    storageBucket: 'gestor365push1.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBLL1oopDjUL8YbXbHuj-PUhP1GQApdurs',
-    appId: '1:92735310654:ios:1a59fd46f414f21f0b7a6f',
-    messagingSenderId: '92735310654',
-    projectId: 'barestoquepush1',
-    storageBucket: 'barestoquepush1.firebasestorage.app',
+    apiKey: 'AIzaSyB4_yVH6TNZUQAgl4u3ahCSCebjMcJCdqE',
+    appId: '1:1076602142855:ios:1443c75f5b580880ae7822',
+    messagingSenderId: '1076602142855',
+    projectId: 'gestor365push1',
+    storageBucket: 'gestor365push1.firebasestorage.app',
     iosBundleId: 'com.example.gestaoBarPos',
   );
+
 }

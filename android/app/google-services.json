@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "92735310654",
-    "project_id": "barestoquepush1",
-    "storage_bucket": "barestoquepush1.firebasestorage.app"
+    "project_number": "1076602142855",
+    "project_id": "gestor365push1",
+    "storage_bucket": "gestor365push1.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:92735310654:android:d70ca815f0028c2b0b7a6f",
+        "mobilesdk_app_id": "1:1076602142855:android:f5a4752311320edbae7822",
         "android_client_info": {
           "package_name": "com.example.gestao_bar_pos"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBHYfZiDHKu5MnUFaUyqM5HAof38pJy45g"
+          "current_key": "AIzaSyC5p3ISXWUb49L41GqthVz2Jc0POqtumCs"
         }
       ],
       "services": {

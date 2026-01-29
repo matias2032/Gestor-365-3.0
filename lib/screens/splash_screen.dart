@@ -142,8 +142,8 @@ Future<void> _continuarInicializacao({required bool isOnline}) async {
   // 3️⃣ Inicializar Supabase (30%)
   await _updateProgress(0.30, 'Conectando ao servidor...');
   await Supabase.initialize(
-    url: 'https://uwwzjvovxisakkugzxsh.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3d3pqdm92eGlzYWtrdWd6eHNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMjkzMjMsImV4cCI6MjA4MTcwNTMyM30.E3qQ0oxLTLcPphUdHTZmUtjIgzQD651aS8ZxstVvc_Y',
+    url: 'https://nyxllwldebpqmusymhir.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55eGxsd2xkZWJwcW11c3ltaGlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MTY2MjMsImV4cCI6MjA4NTI5MjYyM30.irBuXAEM2CsJBdFu-V3qe_ymZU5I73DRjhkJFCgVZ28',
   );
   print('✅ Supabase inicializado');
   await Future.delayed(const Duration(milliseconds: 400));

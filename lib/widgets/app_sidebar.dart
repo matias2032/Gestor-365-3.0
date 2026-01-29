@@ -107,7 +107,6 @@ Future<void> _carregarContadorDoUsuario() async {
     if (idPerfil == 3) {
       return [
         '/menu',
-        '/gerenciar_categorias',
         '/gerenciar_produtos',
         '/dashboard',
       ].contains(route);

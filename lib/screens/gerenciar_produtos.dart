@@ -2,7 +2,9 @@
 
 import 'package:flutter/material.dart';
 import '../models/produto.dart';
+import '../models/categoria.dart';
 import '../services/supabase_sync_service.dart';
+import '../services/base_de_dados.dart';
 import 'package:collection/collection.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
@@ -20,17 +22,41 @@ class GerenciarProdutosScreen extends StatefulWidget {
 
 class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
   final SupabaseSyncService _syncService = SupabaseSyncService.instance;
+  final DatabaseService _dbService = DatabaseService.instance;
   late Future<List<Produto>> _produtosFuture;
   
   // Perfil do usuário
   int? _perfilUsuario;
+
+  // 🔥 FILTROS
+  List<Categoria> _categorias = [];
+  int? _categoriaSelecionada;
+  String _buscaNome = '';
+  double? _precoMin;
+  double? _precoMax;
+  int? _statusAtivo; // null = todos, 1 = ativos, 0 = inativos
+  bool _mostrarFiltros = false;
+  
+  // Controladores
+  final TextEditingController _nomeController = TextEditingController();
+  final TextEditingController _precoMinController = TextEditingController();
+  final TextEditingController _precoMaxController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _perfilUsuario = SessaoService.instance.usuarioAtual?.idPerfil;
     _produtosFuture = _fetchProdutos();
+    _fetchCategorias();
     EstoqueAlertaService.instance.verificarEstoque();
+  }
+
+  @override
+  void dispose() {
+    _nomeController.dispose();
+    _precoMinController.dispose();
+    _precoMaxController.dispose();
+    super.dispose();
   }
 
   // Verificar se pode alterar status
@@ -39,28 +65,98 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
     return _perfilUsuario == 1 || _perfilUsuario == 2;
   }
 
-  // 🔥 NOVO: Verificar se pode cadastrar produtos
+  // Verificar se pode cadastrar produtos
   bool _podeCadastrarProduto() {
     // Apenas Admin (1) e Gerente (2) podem cadastrar
     return _perfilUsuario == 1 || _perfilUsuario == 2;
   }
 
   Future<List<Produto>> _fetchProdutos() async {
-    final produtos = await _syncService.readAllProdutosWithAssoc();
-    
-    produtos.sort((a, b) {
-      final qtdA = a.quantidadeEstoque ?? 999;
-      final qtdB = b.quantidadeEstoque ?? 999;
+    try {
+      final produtos = await _syncService.readAllProdutosWithAssoc();
       
-      if (qtdA < 10 && qtdB >= 10) return -1;
-      if (qtdB < 10 && qtdA >= 10) return 1;
-      if (qtdA < 20 && qtdB >= 20) return -1;
-      if (qtdB < 20 && qtdA >= 20) return 1;
+      // 🔥 APLICAR FILTROS
+      final produtosFiltrados = produtos.where((p) {
+        // Filtro de nome
+        if (_buscaNome.isNotEmpty && 
+            !p.nome.toLowerCase().contains(_buscaNome.toLowerCase())) {
+          return false;
+        }
+        
+        // Filtro de preço
+        if (_precoMin != null && p.preco < _precoMin!) return false;
+        if (_precoMax != null && p.preco > _precoMax!) return false;
+        
+        // Filtro de categoria
+        if (_categoriaSelecionada != null) {
+          final temCategoria = p.categoriasAssociadas?.any(
+            (c) => c.id == _categoriaSelecionada
+          ) ?? false;
+          if (!temCategoria) return false;
+        }
+        
+        // 🔥 NOVO: Filtro de status ativo/inativo
+        if (_statusAtivo != null && p.ativo != _statusAtivo) {
+          return false;
+        }
+        
+        return true;
+      }).toList();
       
-      return qtdA.compareTo(qtdB);
+      // Ordenar por estoque (produtos com estoque baixo primeiro)
+      produtosFiltrados.sort((a, b) {
+        final qtdA = a.quantidadeEstoque ?? 999;
+        final qtdB = b.quantidadeEstoque ?? 999;
+        
+        if (qtdA < 10 && qtdB >= 10) return -1;
+        if (qtdB < 10 && qtdA >= 10) return 1;
+        if (qtdA < 20 && qtdB >= 20) return -1;
+        if (qtdB < 20 && qtdA >= 20) return 1;
+        
+        return qtdA.compareTo(qtdB);
+      });
+      
+      return produtosFiltrados;
+    } catch (e) {
+      print('Erro ao buscar produtos: $e');
+      return [];
+    }
+  }
+
+  Future<void> _fetchCategorias() async {
+    try {
+      final categorias = await _dbService.readAllCategoriasSimples();
+      if (mounted) {
+        setState(() {
+          _categorias = categorias;
+        });
+      }
+    } catch (e) {
+      print('Erro ao buscar categorias: $e');
+    }
+  }
+
+  void _aplicarFiltros() {
+    setState(() {
+      _buscaNome = _nomeController.text.trim();
+      _precoMin = double.tryParse(_precoMinController.text);
+      _precoMax = double.tryParse(_precoMaxController.text);
+      _produtosFuture = _fetchProdutos();
     });
-    
-    return produtos;
+  }
+
+  void _limparFiltros() {
+    setState(() {
+      _nomeController.clear();
+      _precoMinController.clear();
+      _precoMaxController.clear();
+      _categoriaSelecionada = null;
+      _statusAtivo = null;
+      _buscaNome = '';
+      _precoMin = null;
+      _precoMax = null;
+      _produtosFuture = _fetchProdutos();
+    });
   }
 
   void _refreshProducts() {
@@ -185,8 +281,25 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
           const ConectividadeIndicator(), 
           ThemeToggleWidget(showLabel: false),
           
-          // 🔥 BOTÃO DE CADASTRO COM CONTROLE DE PERMISSÃO
-          if (_podeCadastrarProduto()) // 🔥 Só renderiza se tiver permissão
+          // 🔥 BOTÃO DE FILTROS
+          IconButton(
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: Icon(
+                _mostrarFiltros ? Icons.filter_alt_off : Icons.filter_alt,
+                key: ValueKey(_mostrarFiltros),
+              ),
+            ),
+            tooltip: 'Filtros',
+            onPressed: () {
+              setState(() {
+                _mostrarFiltros = !_mostrarFiltros;
+              });
+            },
+          ),
+          
+          // Botão de cadastro com controle de permissão
+          if (_podeCadastrarProduto())
             IconButton(
               icon: const Icon(Icons.add_box),
               tooltip: 'Cadastrar Novo Produto',
@@ -199,193 +312,359 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
       ),
       drawer: const AppSidebar(currentRoute: '/gerenciar_produtos'),
       
-      // 🔥 REMOVIDO: Banner laranja do topo
-      body: FutureBuilder<List<Produto>>(
-        future: _produtosFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('Erro ao carregar produtos: ${snapshot.error}')
-            );
-          }
-
-          final produtos = snapshot.data ?? [];
-
-          if (produtos.isEmpty) {
-            return const Center(
-              child: Text(
-                'Nenhum produto cadastrado.',
-                style: TextStyle(fontSize: 18, color: Colors.grey),
-              ),
-            );
-          }
-
-          return ListView.builder(
-            itemCount: produtos.length,
-            itemBuilder: (context, index) {
-              final produto = produtos[index];
-              final categorias = produto.categoriasAssociadas ?? [];
-              final isAtivo = produto.ativo == 1;
-              
-              final imagemPrincipal = produto.imagens?.firstWhereOrNull(
-                (img) => img.isPrincipal
-              );
-              final caminhoImagem = imagemPrincipal?.caminho;
-
-              return Card(
-                elevation: 4,
-                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(
-                    color: _getCorBordaEstoque(produto.quantidadeEstoque),
-                    width: produto.quantidadeEstoque != null && 
-                           produto.quantidadeEstoque! < 20 ? 3 : 0,
-                  ),
-                ),
-                child: ListTile(
-                  leading: SizedBox(
-                    width: 60,
-                    height: 60,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8.0),
-                      child: CachedProdutoImage(
-                        imagePath: caminhoImagem,
-                        width: 60,
-                        height: 60,
-                        fit: BoxFit.cover,
-                        placeholder: Container(
-                          color: Colors.grey.shade200,
-                          child: const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2),
+      body: Column(
+        children: [
+          // 🔥 PAINEL DE FILTROS
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            child: _mostrarFiltros
+                ? Container(
+                    color: Colors.grey.shade100,
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Filtros',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        // Campo de busca por nome
+                        TextField(
+                          controller: _nomeController,
+                          decoration: const InputDecoration(
+                            labelText: 'Nome do Produto',
+                            prefixIcon: Icon(Icons.search),
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Colors.white,
                           ),
                         ),
-                        errorWidget: CircleAvatar(
-                          backgroundColor: isAtivo 
-                            ? Colors.teal.shade100 
-                            : Colors.grey.shade300,
-                          child: Text(produto.nome[0]),
-                        ),
-                      ),
-                    ),
-                  ),
-                  
-                  title: Text(
-                    produto.nome,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold, 
-                      color: isAtivo ? Colors.black : Colors.grey,
-                      decoration: isAtivo ? null : TextDecoration.lineThrough,
-                    ),
-                  ),
-                  
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 4),
-                      Text('Preço: MZN ${produto.preco.toStringAsFixed(2)}'),
-                      
-                      if (produto.precoPromocional != null && 
-                          produto.categoriasAssociadas?.any(
-                            (c) => c.nome == 'Promoções da Semana'
-                          ) == true)
-                        Text(
-                          'Promoção: MZN ${produto.precoPromocional!.toStringAsFixed(2)}', 
-                          style: const TextStyle(
-                            color: Colors.red, 
-                            fontWeight: FontWeight.bold
-                          ),
-                        ),
-                      
-                      _buildEstoqueIndicator(produto.quantidadeEstoque),
-                      
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6.0,
-                        runSpacing: 0,
-                        children: [
-                          const Text(
-                            'Categorias: ', 
-                            style: TextStyle(fontWeight: FontWeight.w500)
-                          ),
-                          if (categorias.isEmpty)
-                            const Text(
-                              'Nenhuma', 
-                              style: TextStyle(fontStyle: FontStyle.italic)
-                            ),
-                          ...categorias.map((cat) => Chip(
-                            label: Text(
-                              cat.nome, 
-                              style: const TextStyle(fontSize: 12)
-                            ),
-                            backgroundColor: Colors.teal.shade50,
-                            padding: EdgeInsets.zero,
-                          )).toList(),
-                        ],
-                      ),
-                    ],
-                  ),
-                  
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // TOGGLE COM CONTROLE DE PERMISSÃO
-                      Tooltip(
-                        message: _podeAlterarStatus() 
-                            ? (isAtivo ? 'Desativar produto' : 'Ativar produto')
-                            : 'Apenas Gerentes e Administradores podem alterar o status',
-                        child: Switch(
-                          value: isAtivo,
-                          activeColor: _podeAlterarStatus() ? Colors.green : Colors.grey,
-                          inactiveThumbColor: Colors.grey,
-                          onChanged: _podeAlterarStatus()
-                              ? (valor) async {
-                                  await _toggleAtivo(produto.id!, valor);
-                                }
-                              : null, // null = desabilitado
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      
-                      // Botão de edição (mantém a lógica existente)
-                      IconButton(
-                        icon: Icon(
-                          Icons.edit,
-                          color: isAtivo ? Colors.blue : Colors.grey,
-                        ),
-                        tooltip: isAtivo 
-                          ? 'Editar produto' 
-                          : 'Ative o produto para editar',
-                        onPressed: isAtivo
-                          ? () async {
-                              await Navigator.of(context).pushNamed(
-                                '/editar_produto', 
-                                arguments: produto.id,
-                              );
-                              _refreshProducts();
-                            }
-                          : () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Ative o produto antes de editá-lo'
-                                  ),
-                                  backgroundColor: Colors.orange,
+                        const SizedBox(height: 12),
+                        
+                        // Filtros de preço
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _precoMinController,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Preço Mínimo',
+                                  prefixText: 'MZN ',
+                                  border: OutlineInputBorder(),
+                                  filled: true,
+                                  fillColor: Colors.white,
                                 ),
-                              );
-                            },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextField(
+                                controller: _precoMaxController,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Preço Máximo',
+                                  prefixText: 'MZN ',
+                                  border: OutlineInputBorder(),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        // Filtro de categoria
+                        DropdownButtonFormField<int>(
+                          value: _categoriaSelecionada,
+                          decoration: const InputDecoration(
+                            labelText: 'Categoria',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                          items: [
+                            const DropdownMenuItem<int>(
+                              value: null,
+                              child: Text('Todas as Categorias'),
+                            ),
+                            ..._categorias.map((cat) => DropdownMenuItem<int>(
+                                  value: cat.id,
+                                  child: Text(cat.nome),
+                                )),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _categoriaSelecionada = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        // 🔥 NOVO: Filtro de status ativo/inativo
+                        DropdownButtonFormField<int>(
+                          value: _statusAtivo,
+                          decoration: const InputDecoration(
+                            labelText: 'Status',
+                            prefixIcon: Icon(Icons.toggle_on),
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                          items: const [
+                            DropdownMenuItem<int>(
+                              value: null,
+                              child: Text('Todos os Produtos'),
+                            ),
+                            DropdownMenuItem<int>(
+                              value: 1,
+                              child: Text('Apenas Ativos'),
+                            ),
+                            DropdownMenuItem<int>(
+                              value: 0,
+                              child: Text('Apenas Inativos'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              _statusAtivo = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        // Botões de ação
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _aplicarFiltros,
+                                icon: const Icon(Icons.check),
+                                label: const Text('Aplicar'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.teal,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _limparFiltros,
+                                icon: const Icon(Icons.clear),
+                                label: const Text('Limpar'),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          
+          // Lista de produtos
+          Expanded(
+            child: FutureBuilder<List<Produto>>(
+              future: _produtosFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Erro ao carregar produtos: ${snapshot.error}')
+                  );
+                }
+
+                final produtos = snapshot.data ?? [];
+
+                if (produtos.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'Nenhum produto encontrado.',
+                      style: TextStyle(fontSize: 18, color: Colors.grey),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  itemCount: produtos.length,
+                  itemBuilder: (context, index) {
+                    final produto = produtos[index];
+                    final categorias = produto.categoriasAssociadas ?? [];
+                    final isAtivo = produto.ativo == 1;
+                    
+                    final imagemPrincipal = produto.imagens?.firstWhereOrNull(
+                      (img) => img.isPrincipal
+                    );
+                    final caminhoImagem = imagemPrincipal?.caminho;
+
+                    return Card(
+                      elevation: 4,
+                      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: _getCorBordaEstoque(produto.quantidadeEstoque),
+                          width: produto.quantidadeEstoque != null && 
+                                 produto.quantidadeEstoque! < 20 ? 3 : 0,
+                        ),
                       ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
+                      child: ListTile(
+                        leading: SizedBox(
+                          width: 60,
+                          height: 60,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8.0),
+                            child: CachedProdutoImage(
+                              imagePath: caminhoImagem,
+                              width: 60,
+                              height: 60,
+                              fit: BoxFit.cover,
+                              placeholder: Container(
+                                color: Colors.grey.shade200,
+                                child: const Center(
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                              errorWidget: CircleAvatar(
+                                backgroundColor: isAtivo 
+                                  ? Colors.teal.shade100 
+                                  : Colors.grey.shade300,
+                                child: Text(produto.nome[0]),
+                              ),
+                            ),
+                          ),
+                        ),
+                        
+                        title: Text(
+                          produto.nome,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold, 
+                            color: isAtivo ? Colors.black : Colors.grey,
+                            decoration: isAtivo ? null : TextDecoration.lineThrough,
+                          ),
+                        ),
+                        
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 4),
+                            Text('Preço: MZN ${produto.preco.toStringAsFixed(2)}'),
+                            
+                            if (produto.precoPromocional != null && 
+                                produto.categoriasAssociadas?.any(
+                                  (c) => c.nome == 'Promoções da Semana'
+                                ) == true)
+                              Text(
+                                'Promoção: MZN ${produto.precoPromocional!.toStringAsFixed(2)}', 
+                                style: const TextStyle(
+                                  color: Colors.red, 
+                                  fontWeight: FontWeight.bold
+                                ),
+                              ),
+                            
+                            _buildEstoqueIndicator(produto.quantidadeEstoque),
+                            
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6.0,
+                              runSpacing: 0,
+                              children: [
+                                const Text(
+                                  'Categorias: ', 
+                                  style: TextStyle(fontWeight: FontWeight.w500)
+                                ),
+                                if (categorias.isEmpty)
+                                  const Text(
+                                    'Nenhuma', 
+                                    style: TextStyle(fontStyle: FontStyle.italic)
+                                  ),
+                                ...categorias.map((cat) => Chip(
+                                  label: Text(
+                                    cat.nome, 
+                                    style: const TextStyle(fontSize: 12)
+                                  ),
+                                  backgroundColor: Colors.teal.shade50,
+                                  padding: EdgeInsets.zero,
+                                )).toList(),
+                              ],
+                            ),
+                          ],
+                        ),
+                        
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // TOGGLE COM CONTROLE DE PERMISSÃO
+                            Tooltip(
+                              message: _podeAlterarStatus() 
+                                  ? (isAtivo ? 'Desativar produto' : 'Ativar produto')
+                                  : 'Apenas Gerentes e Administradores podem alterar o status',
+                              child: Switch(
+                                value: isAtivo,
+                                activeColor: _podeAlterarStatus() ? Colors.green : Colors.grey,
+                                inactiveThumbColor: Colors.grey,
+                                onChanged: _podeAlterarStatus()
+                                    ? (valor) async {
+                                        await _toggleAtivo(produto.id!, valor);
+                                      }
+                                    : null, // null = desabilitado
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            
+                            // Botão de edição
+                            IconButton(
+                              icon: Icon(
+                                Icons.edit,
+                                color: isAtivo ? Colors.blue : Colors.grey,
+                              ),
+                              tooltip: isAtivo 
+                                ? 'Editar produto' 
+                                : 'Ative o produto para editar',
+                              onPressed: isAtivo
+                                ? () async {
+                                    await Navigator.of(context).pushNamed(
+                                      '/editar_produto', 
+                                      arguments: produto.id,
+                                    );
+                                    _refreshProducts();
+                                  }
+                                : () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Ative o produto antes de editá-lo'
+                                        ),
+                                        backgroundColor: Colors.orange,
+                                      ),
+                                    );
+                                  },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

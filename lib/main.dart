@@ -101,180 +101,102 @@ class MyApp extends StatefulWidget {
   
   static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+  static final GlobalKey<ScaffoldMessengerState> messengerKey = GlobalKey<ScaffoldMessengerState>();
+
   @override
   State<MyApp> createState() => _MyAppState();
 }
 
-// 🔥 SUBSTITUIR a classe ConectividadeListener:
-
 class ConectividadeListener {
   static bool _dialogAberto = false;
-  static bool _processandoReconexao = false; // 🔥 NOVO: Evitar múltiplas sincronizações
-  
-  static void inicializar(BuildContext context) {
+  static bool _processandoReconexao = false;
+
+  // 🔥 Corrigido: Não pede mais BuildContext no init
+  static void inicializar() {
     ConectividadeService.instance.addListener((isOnline, forcarSync) {
-      // 🔥 CRÍTICO: Usar addPostFrameCallback para garantir que MaterialApp está montado
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted) {
-          _onConnectivityChange(context, isOnline, forcarSync);
-        }
+        _onConnectivityChange(isOnline, forcarSync);
       });
     });
   }
-  
-  static void _onConnectivityChange(
-    BuildContext context, 
-    bool isOnline, 
-    bool forcarSync,
-  ) async {
-    final service = ConectividadeService.instance;
+
+  static void _onConnectivityChange(bool isOnline, bool forcarSync) async {
+    // Pegamos o contexto estável através da navigatorKey
+    final context = MyApp.navigatorKey.currentContext;
     
-    // ==========================================
-    // VOLTOU ONLINE
-    // ==========================================
     if (isOnline) {
       _mostrarSnackBar(
-        context,
         '🌐 Conexão restaurada!',
         Colors.green,
         Icons.wifi,
       );
       _dialogAberto = false;
-      
-      // 🔥 NOVO: Sincronização inteligente COM PROTEÇÃO contra múltiplas execuções
+
       if (forcarSync && !_processandoReconexao) {
         _processandoReconexao = true;
-        
-        print('🔄 Forçando sincronização completa (passou >30min offline)');
-        
         try {
           await _sincronizarAposReconexao();
         } catch (e) {
-          print('❌ Erro na sincronização: $e');
-          
-          if (context.mounted) {
-            _mostrarSnackBar(
-              context,
-              '⚠️ Erro na sincronização: ${e.toString().split(':').first}',
-              Colors.orange,
-              Icons.warning,
-            );
-          }
+          _mostrarSnackBar(
+            '⚠️ Erro na sincronização: ${e.toString().split(':').first}',
+            Colors.orange,
+            Icons.warning,
+          );
         } finally {
           _processandoReconexao = false;
         }
-      } else if (!forcarSync) {
-        print('✅ Conexão restaurada - dados recentes, sem necessidade de sync');
-      } else {
-        print('⏳ Sincronização já em andamento...');
       }
-      
       return;
     }
+
+    // --- Lógica Offline ---
+    if (context == null || !context.mounted) return;
     
-    // ==========================================
-    // FICOU OFFLINE
-    // ==========================================
     final rotaAtual = ModalRoute.of(context)?.settings.name;
-    
-    // Não mostrar dialog em rotas públicas ou se já está aberto
-    if (service.modoOfflineManual || 
+    if (ConectividadeService.instance.modoOfflineManual || 
         _dialogAberto || 
-        rotaAtual == '/splash' ||
-        rotaAtual == '/' ||
-        rotaAtual == '/primeira_troca_senha') {
+        ['/splash', '/', '/primeira_troca_senha'].contains(rotaAtual)) {
       return;
     }
-    
-    // 🔥 VALIDAR CONTEXTO antes de mostrar dialog
-    if (!context.mounted) {
-      print('⚠️ Contexto desmontado - não é possível mostrar dialog');
-      return;
-    }
-    
+
     _dialogAberto = true;
-    
     try {
       await ConectividadeDialog.mostrar(
         context,
         isPreSplash: false,
         onReconectar: () async {
           _dialogAberto = false;
-          
-          // Validar sessão se estiver logado
           if (SessaoService.instance.isLogado) {
             final sessaoValida = await SessaoService.instance.validarSessao();
-            
             if (!sessaoValida && context.mounted) {
-              Navigator.of(context).pushNamedAndRemoveUntil(
-                '/',
-                (route) => false,
-              );
+              Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
             }
           }
         },
         onContinuarOffline: () {
           _dialogAberto = false;
           _mostrarSnackBar(
-            context,
-            '✈️ Modo offline ativado. Funcionalidades limitadas.',
+            '✈️ Modo offline ativado.',
             Colors.orange,
             Icons.airplanemode_active,
           );
         },
       );
     } catch (e) {
-      print('❌ Erro ao mostrar dialog: $e');
       _dialogAberto = false;
-      
-      // Fallback: mostrar apenas SnackBar
-      if (context.mounted) {
-        _mostrarSnackBar(
-          context,
-          '📵 Sem conexão - Modo offline',
-          Colors.red,
-          Icons.wifi_off,
-        );
-      }
+      _mostrarSnackBar('📵 Sem conexão - Modo offline', Colors.red, Icons.wifi_off);
     }
   }
-  
-  // 🔥 MÉTODO DE SINCRONIZAÇÃO INTELIGENTE
-  static Future<void> _sincronizarAposReconexao() async {
-    print('🔄 Iniciando sincronização pós-reconexão...');
-    
-    final syncService = SupabaseSyncService.instance;
-    
-    // 1. Processar fila offline primeiro
-    if (syncService.pendingOperations > 0) {
-      print('📤 Processando ${syncService.pendingOperations} operações offline...');
-      await syncService.syncOfflineQueue();
-    }
-    
-    // 2. Sincronização completa apenas se fila vazia
-    if (syncService.pendingOperations == 0) {
-      print('🔄 Iniciando sincronização completa...');
-      await syncService.syncAll();
-      
-      // Marcar sync completa
-      ConectividadeService.instance.marcarSyncCompleta();
-      print('✅ Sincronização completa concluída');
-    } else {
-      print('⚠️ Ainda há ${syncService.pendingOperations} operações pendentes');
-    }
-  }
-  
+
+  // 🔥 Corrigido: Usa a messengerKey em vez do context direto
   static void _mostrarSnackBar(
-    BuildContext context,
     String mensagem,
     Color cor,
     IconData icone,
   ) {
-    if (!context.mounted) return;
-    
-    ScaffoldMessenger.of(context).hideCurrentSnackBar(); // 🔥 LIMPAR ANTERIORES
-    
-    ScaffoldMessenger.of(context).showSnackBar(
+    // Isso evita o erro "No ScaffoldMessenger found"
+    MyApp.messengerKey.currentState?.hideCurrentSnackBar();
+    MyApp.messengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Row(
           children: [
@@ -291,12 +213,21 @@ class ConectividadeListener {
         backgroundColor: cor,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         margin: const EdgeInsets.all(16),
       ),
     );
+  }
+
+  static Future<void> _sincronizarAposReconexao() async {
+    final syncService = SupabaseSyncService.instance;
+    if (syncService.pendingOperations > 0) {
+      await syncService.syncOfflineQueue();
+    }
+    if (syncService.pendingOperations == 0) {
+      await syncService.syncAll();
+      ConectividadeService.instance.marcarSyncCompleta();
+    }
   }
 }
 
@@ -312,7 +243,7 @@ class _MyAppState extends State<MyApp> {
     // 🔥 NOVO: Aguardar primeiro frame para inicializar listener
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        ConectividadeListener.inicializar(context);
+       ConectividadeListener.inicializar();
       }
     });
   }
@@ -332,12 +263,13 @@ class _MyAppState extends State<MyApp> {
       animation: themeProvider,
       builder: (context, child) {
         return MaterialApp(
-          title: 'Bar Digital POS',
+          title: 'Gestor 365',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: themeProvider.themeMode,
           navigatorKey: MyApp.navigatorKey,
+          scaffoldMessengerKey: MyApp.messengerKey,
           initialRoute: '/splash',
           onGenerateRoute: (settings) {
             const rotasPublicas = [

@@ -1,8 +1,6 @@
-// supabase/functions/notify-stock-rupture/index.ts
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// 🔥 CREDENCIAIS GESTOR365PUSH1 - ATUALIZADAS
+// 🔥 CREDENCIAIS GESTOR365PUSH1 (CONFIRMADAS)
 const FCM_SERVICE_ACCOUNT = {
   project_id: "gestor365push1",
   client_email: "firebase-adminsdk-fbsvc@gestor365push1.iam.gserviceaccount.com",
@@ -58,10 +56,11 @@ async function getAccessToken(): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(unsignedToken);
   
+  // Limpeza robusta da chave
   const pemContents = FCM_SERVICE_ACCOUNT.private_key
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\s/g, ""); // Remove espaços e quebras de linha
+    .replace(/\s/g, ""); // Remove espaços e quebras de linha com segurança
   
   const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
   
@@ -88,24 +87,46 @@ async function getAccessToken(): Promise<string> {
   });
 
   const tokenData = await tokenResponse.json();
-  if (!tokenData.access_token) throw new Error(`Falha no token: ${JSON.stringify(tokenData)}`);
+  if (!tokenData.access_token) {
+    throw new Error(`Falha no token: ${JSON.stringify(tokenData)}`);
+  }
   
   return tokenData.access_token;
 }
 
-// 🔥 ENVIAR NOTIFICAÇÃO
+// 🔥 ENVIAR NOTIFICAÇÃO (Versão Completa Restaurada)
 async function sendFCMNotification(accessToken: string, productData: any) {
   const message = {
     message: {
       topic: "estoque_ruptura",
       notification: {
-        title: "🚨 RUPTURA DE ESTOQUE!",
+        title: " RUPTURA DE ESTOQUE!",
         body: `O produto "${productData.nome_produto}" está com estoque ZERADO!`,
       },
+      // Dados extras para o App usar ao clicar na notificação
       data: {
         id_produto: productData.id_produto.toString(),
         nome_produto: productData.nome_produto,
+        quantidade: (productData.quantidade_estoque ?? 0).toString(),
         tipo: "ruptura_estoque",
+      },
+      // Configurações Específicas para Android (Restauradas)
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          color: "#FF0000", // Vermelho Alerta
+          channel_id: "alerta_ruptura",
+        },
+      },
+      // Configurações Específicas para iOS (Restauradas)
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+          },
+        },
       },
     },
   };
@@ -122,7 +143,13 @@ async function sendFCMNotification(accessToken: string, productData: any) {
     }
   );
 
-  return await response.json();
+  const result = await response.json();
+
+  if (!response.ok) {
+     throw new Error(`FCM API Error: ${JSON.stringify(result)}`);
+  }
+
+  return result;
 }
 
 // 🔥 HANDLER PRINCIPAL (SERVE)
@@ -136,15 +163,33 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders, status: 204 });
 
   try {
-    const { id_produto, nome_produto } = await req.json();
+    const { id_produto, nome_produto, quantidade_estoque } = await req.json();
+    
+    // Log restaurado para Debug
+    console.log(`📦 Processando ruptura: ${nome_produto} (ID: ${id_produto})`);
+
+    // Validação restaurada
+    if (!id_produto || !nome_produto) {
+        throw new Error("Dados inválidos: id_produto ou nome_produto faltando.");
+    }
+
     const accessToken = await getAccessToken();
-    const result = await sendFCMNotification(accessToken, { id_produto, nome_produto });
+    
+    // Passando o objeto completo restaurado
+    const result = await sendFCMNotification(accessToken, { 
+        id_produto, 
+        nome_produto, 
+        quantidade_estoque 
+    });
+
+    console.log("✅ Notificação enviada com sucesso!");
 
     return new Response(JSON.stringify({ success: true, result }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
   } catch (error) {
+    console.error("❌ Erro na função:", error);
     return new Response(JSON.stringify({ success: false, error: error.message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,

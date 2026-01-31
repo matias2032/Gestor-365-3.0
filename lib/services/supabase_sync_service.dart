@@ -1322,6 +1322,9 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     return await _createPedidoOffline(pedido, itens);
   }
   
+  // 🔥 NOVO: Gerar reference ANTES (para verificação posterior)
+  final reference = 'PED-${DateTime.now().millisecondsSinceEpoch}-${_deviceId?.substring(0, 8) ?? ""}';
+  
   // Teste de conexão
   try {
     await _supabase
@@ -1332,16 +1335,14 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     
   } on TimeoutException {
     print('⚠️ Conexão instável - criando offline');
-    return await _createPedidoOffline(pedido, itens);
+    return await _createPedidoOffline(pedido, itens, reference); // 🔥 PASSA REFERENCE
   } catch (e) {
     print('⚠️ Erro no teste de conexão: $e - criando offline');
-    return await _createPedidoOffline(pedido, itens);
+    return await _createPedidoOffline(pedido, itens, reference); // 🔥 PASSA REFERENCE
   }
   
   // ONLINE: Usar RPC
   try {
-    final reference = 'PED-${DateTime.now().millisecondsSinceEpoch}';
-    
     final itensJson = itens.map((item) => {
       'id_produto': item.idProduto,
       'quantidade': item.quantidade,
@@ -1349,17 +1350,13 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
       'subtotal': item.subtotal,
     }).toList();
     
-    print('🔄 Criando pedido no Supabase via RPC...');
+    print('🔄 Criando pedido no Supabase via RPC (ref: $reference)...');
     
-    // ✅ NOVA ORDEM DE PARÂMETROS
     final response = await _supabase.rpc('criar_pedido_completo', params: {
-      // OBRIGATÓRIOS (ordem exata da função SQL)
       'p_reference': reference,
       'p_id_usuario': pedido.idUsuario,
       'p_idtipo_pagamento': pedido.idTipoPagamento,
       'p_itens': itensJson,
-      
-      // OPCIONAIS (podem ser omitidos se forem null)
       'p_telefone': pedido.telefone,
       'p_email': pedido.email,
       'p_device_id': _deviceId,
@@ -1386,69 +1383,173 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     print('   Itens: $itensCriados');
     print('   Estoque: ${estoqueDebitado ? "Debitado ✓" : "Erro ✗"}');
     
-    // Criar localmente
-    final db = await _localDb.database;
-    await db.transaction((txn) async {
-      final pedidoComId = pedido.copyWith(
-        id: idSupabase,
-        reference: reference,
-        total: total,
-        statusPedido: 'por finalizar',
-        dataPedido: DateTime.now().toIso8601String(),
-      );
-      
-      await txn.insert(
-        'pedido', 
-        pedidoComId.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-      
-      for (final item in itens) {
-        final itemComId = item.copyWith(idPedido: idSupabase);
-        await txn.insert(
-          'item_pedido', 
-          itemComId.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-        
-        await txn.rawUpdate(
-          'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
-          [item.quantidade, item.idProduto],
-        );
-      }
-    });
-    
-    print('✅ Pedido sincronizado localmente');
+    // 🔥 NOVO: Criar localmente com try-catch isolado
+    try {
+      await _criarPedidoLocalAposRPC(pedido, itens, idSupabase, reference, total);
+      print('✅ Pedido sincronizado localmente');
+    } catch (e) {
+      print('⚠️ Erro ao criar localmente (pedido existe no Supabase): $e');
+      // 🔥 NOVO: Adicionar à fila de sincronização para tentar depois
+      _addToOfflineQueue(OfflineOperation(
+        type: 'sync_pedido_existente',
+        data: {'id_pedido': idSupabase, 'reference': reference},
+        timestamp: DateTime.now(),
+      ));
+    }
     
     return idSupabase;
     
   } on TimeoutException catch (e) {
-    print('⏱️ Timeout: $e - criando offline');
-    return await _createPedidoOffline(pedido, itens);
+    print('⏱️ Timeout: $e');
+    
+    // 🔥 NOVO: Verificar se pedido foi criado apesar do timeout
+    final pedidoExistente = await _verificarPedidoRemoto(reference);
+    
+    if (pedidoExistente != null) {
+      print('✅ Pedido encontrado no Supabase apesar do timeout!');
+      final idSupabase = pedidoExistente['id_pedido'] as int;
+      final total = (pedidoExistente['total'] as num).toDouble();
+      
+      // Criar localmente
+      try {
+        await _criarPedidoLocalAposRPC(pedido, itens, idSupabase, reference, total);
+      } catch (e) {
+        print('⚠️ Erro ao criar localmente: $e');
+        _addToOfflineQueue(OfflineOperation(
+          type: 'sync_pedido_existente',
+          data: {'id_pedido': idSupabase, 'reference': reference},
+          timestamp: DateTime.now(),
+        ));
+      }
+      
+      return idSupabase;
+    }
+    
+    // Pedido realmente não foi criado → criar offline
+    print('📵 Pedido não encontrado no Supabase - criando offline');
+    return await _createPedidoOffline(pedido, itens, reference);
     
   } catch (e) {
     print('❌ Erro ao criar pedido: $e');
     
+    // 🔥 NOVO: Verificar se é erro de rede ou de validação
     if (e.toString().contains('Estoque insuficiente') || 
-        e.toString().contains('não encontrado')) {
-      rethrow;
+        e.toString().contains('não encontrado') ||
+        e.toString().contains('obrigatório')) {
+      rethrow; // Propagar erros de validação
     }
     
-    return await _createPedidoOffline(pedido, itens);
+    // 🔥 NOVO: Para outros erros, verificar se pedido foi criado
+    final pedidoExistente = await _verificarPedidoRemoto(reference);
+    
+    if (pedidoExistente != null) {
+      print('✅ Pedido foi criado no Supabase apesar do erro');
+      final idSupabase = pedidoExistente['id_pedido'] as int;
+      final total = (pedidoExistente['total'] as num).toDouble();
+      
+      try {
+        await _criarPedidoLocalAposRPC(pedido, itens, idSupabase, reference, total);
+      } catch (e) {
+        _addToOfflineQueue(OfflineOperation(
+          type: 'sync_pedido_existente',
+          data: {'id_pedido': idSupabase, 'reference': reference},
+          timestamp: DateTime.now(),
+        ));
+      }
+      
+      return idSupabase;
+    }
+    
+    // Criar offline
+    return await _createPedidoOffline(pedido, itens, reference);
   }
 }
 
-Future<int> _createPedidoOffline(Pedido pedido, List<ItemPedido> itens) async {
+// 🔥 NOVO MÉTODO: Verificar se pedido existe no Supabase
+Future<Map<String, dynamic>?> _verificarPedidoRemoto(String reference) async {
+  try {
+    print('🔍 Verificando se pedido $reference existe no Supabase...');
+    
+    final response = await _supabase
+        .from('pedidos')
+        .select('id_pedido, total, status_pedido')
+        .eq('reference', reference)
+        .maybeSingle()
+        .timeout(const Duration(seconds: 3));
+    
+    if (response != null) {
+      print('✅ Pedido encontrado: ID ${response['id_pedido']}');
+    } else {
+      print('❌ Pedido não encontrado');
+    }
+    
+    return response;
+    
+  } catch (e) {
+    print('⚠️ Erro ao verificar pedido remoto: $e');
+    return null;
+  }
+}
+
+// 🔥 NOVO MÉTODO: Criar pedido localmente após RPC bem-sucedido
+Future<void> _criarPedidoLocalAposRPC(
+  Pedido pedido,
+  List<ItemPedido> itens,
+  int idSupabase,
+  String reference,
+  double total,
+) async {
+  final db = await _localDb.database;
+  
+  await db.transaction((txn) async {
+    final pedidoComId = pedido.copyWith(
+      id: idSupabase,
+      reference: reference,
+      total: total,
+      statusPedido: 'por finalizar',
+      dataPedido: DateTime.now().toIso8601String(),
+    );
+    
+    await txn.insert(
+      'pedido', 
+      pedidoComId.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    
+    for (final item in itens) {
+      final itemComId = item.copyWith(idPedido: idSupabase);
+      await txn.insert(
+        'item_pedido', 
+        itemComId.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      
+      // 🔥 IMPORTANTE: Debitar estoque localmente
+      await txn.rawUpdate(
+        'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
+        [item.quantidade, item.idProduto],
+      );
+    }
+  });
+}
+
+// 🔥 MODIFICADO: Aceitar reference como parâmetro
+Future<int> _createPedidoOffline(
+  Pedido pedido, 
+  List<ItemPedido> itens,
+  [String? reference] // 🔥 NOVO: parâmetro opcional
+) async {
   print('📵 Modo offline - criando pedido localmente');
   
   try {
     final db = await _localDb.database;
     
     return await db.transaction((txn) async {
-      final reference = 'OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
+      // 🔥 USAR reference passado ou gerar novo
+      final refFinal = reference ?? 'OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
       
       final pedidoMap = pedido.copyWith(
-        reference: reference,
+        reference: refFinal, // 🔥 USA REFERENCE CONSISTENTE
         statusPedido: 'por finalizar',
       ).toMap();
       
@@ -1460,8 +1561,6 @@ Future<int> _createPedidoOffline(Pedido pedido, List<ItemPedido> itens) async {
       double totalCalculado = 0;
       
       for (final item in itens) {
-        // Validações de estoque...
-        
         final itemMap = item.copyWith(idPedido: idLocal).toMap();
         itemMap.remove('id_item_pedido');
         
@@ -1487,6 +1586,7 @@ Future<int> _createPedidoOffline(Pedido pedido, List<ItemPedido> itens) async {
         type: 'create_pedido_completo',
         data: {
           'id_pedido_local': idLocal,
+          'reference': refFinal, // 🔥 INCLUIR REFERENCE
           'pedido': pedidoMap,
           'itens': itens.map((i) => {
             'id_produto': i.idProduto,
@@ -1498,7 +1598,7 @@ Future<int> _createPedidoOffline(Pedido pedido, List<ItemPedido> itens) async {
         timestamp: DateTime.now(),
       ));
       
-      print('✅ Pedido #$idLocal criado offline e adicionado à fila');
+      print('✅ Pedido #$idLocal criado offline (ref: $refFinal)');
       
       return idLocal;
     });
@@ -2388,15 +2488,7 @@ Future<void> validarFilaOffline() async {
   // }
   // break;
 
-      case 'create_pedido':
-        final pedidoData = operation.data['pedido'];
-        await _supabase.from('pedidos').insert({
-          'id_pedido': operation.data['id_pedido'],
-          'id_usuario': pedidoData['id_usuario'],
-          'total': pedidoData['total'],
-          'status_pedido': pedidoData['status_pedido'],
-        });
-        break;
+
 
         // ==========================================
 // lib/services/supabase_sync_service.dart
@@ -2771,42 +2863,70 @@ case 'create_pedido_completo':
     final pedidoData = operation.data['pedido'] as Map<String, dynamic>;
     final itensData = operation.data['itens'] as List<dynamic>;
     final idPedidoLocal = operation.data['id_pedido_local'] as int;
+    final reference = operation.data['reference'] as String; // 🔥 NOVO: obter reference
     
-    final reference = 'PED-${DateTime.now().millisecondsSinceEpoch}';
+    print('🔄 Sincronizando pedido offline (ref: $reference)...');
     
-    // Criar pedido no Supabase
-    final pedidoResponse = await _supabase.from('pedidos').insert({
-      'reference': reference,
-      'id_usuario': pedidoData['id_usuario'],
-      'total': pedidoData['total'],
-      'status_pedido': 'por finalizar',
-      'data_pedido': DateTime.now().toUtc().toIso8601String(),
-      'telefone': pedidoData['telefone'],
-      'email': pedidoData['email'],
-      'idtipo_pagamento': pedidoData['idtipo_pagamento'],
-      'device_id': _deviceId,
-    }).select().single();
+    // 🔥 NOVO: Verificar se pedido já existe no Supabase
+    final pedidoExistente = await _supabase
+        .from('pedidos')
+        .select('id_pedido, total')
+        .eq('reference', reference)
+        .maybeSingle();
     
-    final idSupabase = pedidoResponse['id_pedido'] as int;
-    
-    // Inserir itens
-    for (final itemData in itensData) {
-      await _supabase.from('itens_pedido').insert({
-        'id_pedido': idSupabase,
-        'id_produto': itemData['id_produto'],
-        'quantidade': itemData['quantidade'],
-        'preco_unitario': itemData['preco_unitario'],
-        'subtotal': itemData['subtotal'],
-      });
+    if (pedidoExistente != null) {
+      // 🔥 PEDIDO JÁ EXISTE: Apenas atualizar IDs locais
+      final idSupabase = pedidoExistente['id_pedido'] as int;
       
-      // Debitar estoque
-      await _supabase.rpc('decrement_stock', params: {
-        'product_id': itemData['id_produto'],
-        'quantity': itemData['quantidade'],
-      });
+      print('✅ Pedido já existe no Supabase (ID: $idSupabase)');
+      
+      final db = await _localDb.database;
+      await db.update(
+        'pedido',
+        {'id_pedido': idSupabase, 'reference': reference},
+        where: 'id_pedido = ?',
+        whereArgs: [idPedidoLocal],
+      );
+      
+      await db.update(
+        'item_pedido',
+        {'id_pedido': idSupabase},
+        where: 'id_pedido = ?',
+        whereArgs: [idPedidoLocal],
+      );
+      
+      print('✅ IDs locais atualizados para ID Supabase $idSupabase');
+      return; // 🔥 SAIR SEM CRIAR NOVAMENTE
     }
     
-    // Atualizar ID local para ID do Supabase
+    // 🔥 PEDIDO NÃO EXISTE: Usar RPC (mais seguro que INSERT manual)
+    final itensJson = itensData.map((item) => {
+      'id_produto': item['id_produto'],
+      'quantidade': item['quantidade'],
+      'preco_unitario': item['preco_unitario'],
+      'subtotal': item['subtotal'],
+    }).toList();
+    
+    final response = await _supabase.rpc('criar_pedido_completo', params: {
+      'p_reference': reference,
+      'p_id_usuario': pedidoData['id_usuario'],
+      'p_idtipo_pagamento': pedidoData['idtipo_pagamento'],
+      'p_itens': itensJson,
+      'p_telefone': pedidoData['telefone'],
+      'p_email': pedidoData['email'],
+      'p_device_id': _deviceId,
+      'p_bairro': pedidoData['bairro'],
+      'p_ponto_referencia': pedidoData['ponto_referencia'],
+      'p_endereco_json': pedidoData['endereco_json'],
+    });
+    
+    if (response.isEmpty) {
+      throw Exception('RPC não retornou dados');
+    }
+    
+    final idSupabase = response[0]['id_pedido'] as int;
+    
+    // Atualizar IDs locais
     final db = await _localDb.database;
     await db.update(
       'pedido',
@@ -2821,7 +2941,6 @@ case 'create_pedido_completo':
       where: 'id_pedido = ?',
       whereArgs: [idPedidoLocal],
     );
-
     
     print('✅ Pedido offline #$idPedidoLocal sincronizado como #$idSupabase');
     
@@ -2830,6 +2949,50 @@ case 'create_pedido_completo':
     rethrow; // Mantém na fila para próxima tentativa
   }
   break;
+
+case 'sync_pedido_existente':
+  try {
+    final idPedido = operation.data['id_pedido'] as int;
+    final reference = operation.data['reference'] as String;
+    
+    print('🔄 Sincronizando pedido existente $idPedido...');
+    
+    // Buscar pedido completo do Supabase
+    final pedidoResponse = await _supabase
+        .from('pedidos')
+        .select('*')
+        .eq('id_pedido', idPedido)
+        .single();
+    
+    final itensResponse = await _supabase
+        .from('itens_pedido')
+        .select('*')
+        .eq('id_pedido', idPedido);
+    
+    // Criar/atualizar localmente
+    final db = await _localDb.database;
+    await db.insert(
+      'pedido',
+      pedidoResponse,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    
+    for (final itemData in itensResponse) {
+      await db.insert(
+        'item_pedido',
+        itemData,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    
+    print('✅ Pedido $idPedido sincronizado localmente');
+    
+  } catch (e) {
+    print('❌ Erro ao sincronizar pedido existente: $e');
+    rethrow;
+  }
+  break;
+
 
   case 'delete_item_pedido':
   try {

@@ -46,51 +46,64 @@ class _CachedProdutoImageState extends State<CachedProdutoImage> {
     }
   }
 
-  Future<void> _loadImage() async {
-    if (widget.imagePath == null || widget.imagePath!.isEmpty) {
+  // 🔥 SUBSTITUIR o método _loadImage completo
+
+Future<void> _loadImage() async {
+  if (widget.imagePath == null || widget.imagePath!.isEmpty) {
+    setState(() {
+      _isLoading = false;
+      _hasError = true;
+    });
+    return;
+  }
+
+  setState(() {
+    _isLoading = true;
+    _hasError = false;
+  });
+
+  try {
+    // 🔥 CASO 1: URL do Supabase - baixar e cachear
+    if (_storageService.isSupabaseUrl(widget.imagePath!)) {
+      // ✅ CORRETO
+final cachedPath = await _storageService.cacheImagemLocal(widget.imagePath!);
+
+      if (mounted) {
+        setState(() {
+          _localPath = cachedPath;
+          _isLoading = false;
+          _hasError = cachedPath == null;
+        });
+      }
+    } 
+    // 🔥 CASO 2: Caminho local - verificar se existe
+    else {
+      final file = File(widget.imagePath!);
+      final exists = await file.exists();
+      
+      if (mounted) {
+        setState(() {
+          _localPath = exists ? widget.imagePath : null;
+          _isLoading = false;
+          _hasError = !exists;
+        });
+      }
+      
+      // 🔥 DEBUG: Avisar se não existe
+      if (!exists) {
+        print('⚠️ Imagem local não encontrada: ${widget.imagePath}');
+      }
+    }
+  } catch (e) {
+    print('❌ Erro ao carregar imagem: $e');
+    if (mounted) {
       setState(() {
         _isLoading = false;
         _hasError = true;
       });
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _hasError = false;
-    });
-
-    try {
-      // Se for URL do Supabase, cachear localmente
-      if (_storageService.isSupabaseUrl(widget.imagePath!)) {
-        final cachedPath = await _storageService.cacheImagemLocal(widget.imagePath!);
-        
-        if (mounted) {
-          setState(() {
-            _localPath = cachedPath;
-            _isLoading = false;
-            _hasError = cachedPath == null;
-          });
-        }
-      } else {
-        // É caminho local
-        if (mounted) {
-          setState(() {
-            _localPath = widget.imagePath;
-            _isLoading = false;
-          });
-        }
-      }
-    } catch (e) {
-      print('❌ Erro ao carregar imagem: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _hasError = true;
-        });
-      }
     }
   }
+}
 
   @override
   Widget build(BuildContext context) {

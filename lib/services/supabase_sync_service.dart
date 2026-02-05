@@ -4178,6 +4178,45 @@ Future<void> forcarSincronizacaoCompleta() async {
   }
 }
 
+// 🔥 ADICIONAR este método na classe SupabaseSyncService
+
+/// Sincroniza imagens locais com Supabase Storage
+Future<void> sincronizarImagensProdutos() async {
+  try {
+    // Buscar produtos com imagens não sincronizadas (caminhos locais)
+   final db = await _localDb.database;
+    
+    final List<Map<String, dynamic>> imagensLocais = await db.rawQuery('''
+      SELECT pi.id, pi.caminho, pi.id_produto
+      FROM produto_imagem pi
+      WHERE pi.caminho NOT LIKE 'http%'
+    ''');
+    
+    for (final row in imagensLocais) {
+      final id = row['id'] as int;
+      final caminhoLocal = row['caminho'] as String;
+      
+      // Fazer upload para Supabase
+      final publicUrl = await SupabaseStorageService.instance.uploadImagem(caminhoLocal);
+      
+      if (publicUrl != null) {
+        // Atualizar caminho no banco
+        await db.update(
+          'produto_imagem',
+          {'caminho': publicUrl},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        
+        print('✅ Imagem sincronizada: $id -> $publicUrl');
+      }
+    }
+    
+  } catch (e) {
+    print('❌ Erro ao sincronizar imagens: $e');
+  }
+}
+
 
   // ==========================================
   // MÉTODO PARA FECHAR O BANCO

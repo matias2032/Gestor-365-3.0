@@ -13,7 +13,6 @@ dependencies:
   # Supabase
   supabase_flutter: ^2.5.0
 
-  
   # Conectividade
   connectivity_plus: ^6.0.0
   internet_connection_checker: ^3.0.1
@@ -47,7 +46,10 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
   flutter_native_splash: ^2.4.7
-
+  crypto: ^3.0.3
+  http: ^1.2.0
+  timezone: ^0.9.2
+  
 flutter_icons:
   android: true
   ios: true

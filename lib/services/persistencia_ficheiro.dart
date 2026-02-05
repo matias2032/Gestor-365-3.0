@@ -1,30 +1,51 @@
-//persistencia_ficheiro.dart
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 
-// Função responsável por mover o ficheiro temporário para um local permanente
+// 🔥 CORREÇÃO: Criar estrutura de pastas permanente
 Future<String?> saveImagePermanently(String? tempPath) async {
   if (tempPath == null || tempPath.isEmpty) return null;
 
   try {
     final originalFile = File(tempPath);
     
-    // Obter o diretório de documentos da aplicação
-    final directory = await getApplicationDocumentsDirectory(); 
+    if (!await originalFile.exists()) {
+      print("❌ Arquivo temporário não existe: $tempPath");
+      return null;
+    }
     
-    // Criar um nome de ficheiro único
-    final fileName = 'img_${DateTime.now().millisecondsSinceEpoch}.jpg'; 
-    final newPath = '${directory.path}/$fileName';
+    // 🔥 CORREÇÃO: Usar diretório de aplicação persistente
+    final directory = await getApplicationDocumentsDirectory();
+    final imagensDir = Directory('${directory.path}/produto_imagens');
     
-    // Copiar o ficheiro para o novo local permanente
+    // 🔥 GARANTIR que a pasta existe
+    if (!await imagensDir.exists()) {
+      await imagensDir.create(recursive: true);
+    }
+    
+    // 🔥 MANTER extensão original
+    final extension = path.extension(tempPath);
+    final fileName = 'img_${DateTime.now().millisecondsSinceEpoch}$extension';
+    final newPath = '${imagensDir.path}/$fileName';
+    
+    // 🔥 COPIAR (não mover) para garantir persistência
     await originalFile.copy(newPath);
     
-    // Retornar o caminho permanente para ser salvo no SQLite
+    print("✅ Imagem salva permanentemente: $newPath");
     return newPath;
     
   } catch (e) {
-    // É crucial lidar com exceções de IO
-    print("Erro ao salvar a imagem permanentemente: $e");
+    print("❌ Erro ao salvar imagem permanentemente: $e");
     return null;
+  }
+}
+
+// 🔥 NOVO: Verificar se caminho local existe
+Future<bool> verificarImagemLocal(String localPath) async {
+  try {
+    final file = File(localPath);
+    return await file.exists();
+  } catch (e) {
+    return false;
   }
 }

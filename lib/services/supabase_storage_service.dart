@@ -1,9 +1,9 @@
 // lib/services/supabase_storage_service.dart
-// SUBSTITUIR O ARQUIVO COMPLETO
 
 import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 
 class SupabaseStorageService {
   static final SupabaseStorageService instance = SupabaseStorageService._init();
@@ -23,14 +23,12 @@ class SupabaseStorageService {
         return null;
       }
 
-      // Gerar nome único
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final extension = path.extension(localPath);
       final fileName = 'produto_$timestamp$extension';
       
       print('📤 Iniciando upload: $fileName');
 
-      // 🔥 CORREÇÃO 1: Usar uploadBinary ao invés de upload
       final bytes = await file.readAsBytes();
       
       await _supabase.storage
@@ -40,11 +38,10 @@ class SupabaseStorageService {
             bytes,
             fileOptions: FileOptions(
               contentType: _getContentType(extension),
-              upsert: false, // Não sobrescrever
+              upsert: false,
             ),
           );
 
-      // Obter URL pública
       final publicUrl = _supabase.storage
           .from(_bucketName)
           .getPublicUrl(fileName);
@@ -53,13 +50,10 @@ class SupabaseStorageService {
       return publicUrl;
       
     } on StorageException catch (e) {
-      // 🔥 TRATAMENTO ESPECÍFICO DE ERROS
       if (e.statusCode == '403' || e.message.contains('policy')) {
         print('❌ Erro 403: Verifique as políticas RLS do bucket no Supabase');
-        print('   Execute o SQL de correção de políticas!');
       } else if (e.statusCode == '409') {
         print('⚠️ Arquivo já existe, tentando com novo nome...');
-        // Tentar novamente com timestamp diferente
         await Future.delayed(const Duration(milliseconds: 100));
         return uploadImagem(localPath);
       } else {
@@ -72,7 +66,6 @@ class SupabaseStorageService {
     }
   }
 
-  /// Retorna o Content-Type baseado na extensão
   String _getContentType(String extension) {
     switch (extension.toLowerCase()) {
       case '.jpg':
@@ -89,7 +82,6 @@ class SupabaseStorageService {
     }
   }
 
-  /// Faz upload de múltiplas imagens
   Future<List<String>> uploadMultiplasImagens(List<String> localPaths) async {
     final urls = <String>[];
     
@@ -105,7 +97,6 @@ class SupabaseStorageService {
     return urls;
   }
 
-  /// Deleta uma imagem do Storage
   Future<bool> deleteImagem(String publicUrl) async {
     try {
       final uri = Uri.parse(publicUrl);
@@ -124,16 +115,13 @@ class SupabaseStorageService {
     }
   }
 
-  /// Verifica se um caminho é uma URL do Supabase
   bool isSupabaseUrl(String caminho) {
     return caminho.startsWith('http') && 
            caminho.contains('supabase');
   }
 
-  /// 🔥 NOVO: Verifica se o bucket existe e está configurado
   Future<bool> verificarConfiguracao() async {
     try {
-      // Tentar listar arquivos (verifica permissões)
       await _supabase.storage
           .from(_bucketName)
           .list(
@@ -151,7 +139,7 @@ class SupabaseStorageService {
     }
   }
 
-  /// Baixa uma imagem do Supabase para cache local
+  // 🔥 ÚNICO MÉTODO cacheImagemLocal (baixa e salva permanentemente)
   Future<String?> cacheImagemLocal(String publicUrl) async {
     try {
       if (!isSupabaseUrl(publicUrl)) {
@@ -159,25 +147,37 @@ class SupabaseStorageService {
       }
 
       final fileName = Uri.parse(publicUrl).pathSegments.last;
-      final cacheDir = Directory.systemTemp;
-      final localPath = '${cacheDir.path}/$fileName';
       
-      // Verificar se já existe em cache
-      final cacheFile = File(localPath);
-      if (await cacheFile.exists()) {
+      // 🔥 DIRETÓRIO PERMANENTE
+      final directory = await getApplicationDocumentsDirectory();
+      final imagensDir = Directory('${directory.path}/produto_imagens');
+      
+      if (!await imagensDir.exists()) {
+        await imagensDir.create(recursive: true);
+      }
+      
+      final localPath = '${imagensDir.path}/$fileName';
+      
+      // Verificar se já existe
+      final localFile = File(localPath);
+      if (await localFile.exists()) {
+        print('✅ Imagem já existe localmente: $localPath');
         return localPath;
       }
 
-      // Baixar imagem
+      // Baixar do Supabase
+      print('📥 Baixando imagem: $fileName');
       final response = await _supabase.storage
           .from(_bucketName)
           .download(fileName);
 
-      await cacheFile.writeAsBytes(response);
+      await localFile.writeAsBytes(response);
+      print('✅ Imagem baixada e salva: $localPath');
+      
       return localPath;
       
     } catch (e) {
-      print('❌ Erro ao cachear imagem: $e');
+      print('❌ Erro ao cachear/salvar imagem: $e');
       return null;
     }
   }

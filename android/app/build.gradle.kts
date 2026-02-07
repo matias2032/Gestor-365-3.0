@@ -1,46 +1,60 @@
+//android/app/build.gradle.kts
+
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
-    // START: FlutterFire Configuration
     id("com.google.gms.google-services")
-    // END: FlutterFire Configuration
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// ✅ CARREGAR CONFIGURAÇÕES DA KEYSTORE
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
 android {
-   namespace = "com.example.gestao_bar_pos"
-    compileSdk = flutter.compileSdkVersion
+    namespace = "com.example.gestao_bar_pos"
+    compileSdk = 36
     ndkVersion = "29.0.14206865"
 
     compileOptions {
-        // Habilita o suporte para bibliotecas Java 8+ (Desugaring)
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
- kotlinOptions {
-    jvmTarget = "17"
-}
+    kotlin {
+        jvmToolchain(21)
+    }
 
-   defaultConfig {
+    defaultConfig {
         applicationId = "com.example.gestao_bar_pos"
-        // Importante: Local Notifications as vezes exige minSdk 21+
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
-        
-        // Adicione esta linha se não existir
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0.0"
         multiDexEnabled = true
+    }
+
+    // ✅ CONFIGURAÇÃO DE ASSINATURA
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"].toString()
+            keyPassword = keystoreProperties["keyPassword"].toString()
+            storeFile = file(keystoreProperties["storeFile"].toString())
+            storePassword = keystoreProperties["storePassword"].toString()
+        }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
@@ -53,4 +67,3 @@ dependencies {
     implementation("androidx.multidex:multidex:2.0.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
-

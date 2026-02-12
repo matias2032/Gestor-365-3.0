@@ -6,6 +6,9 @@ import '../widgets/app_sidebar.dart';
 import '../services/base_de_dados.dart';
 import '../widgets/estoque_alerta_popup.dart';
 import '../widgets/conectividade_indicator.dart';
+import '../services/sessao_service.dart';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
+import 'dart:async'; // 🔥 SE JÁ NÃO EXISTIR
 
 
 class DashboardVendasScreen extends StatefulWidget {
@@ -18,9 +21,12 @@ class DashboardVendasScreen extends StatefulWidget {
 enum PeriodoFiltro { hoje, semana, mes, tresMeses, seisMeses, ano }
 
 class _DashboardVendasScreenState extends State<DashboardVendasScreen> {
+   StreamSubscription<SyncEvent>? _syncEventsSubscription;
 
   PeriodoFiltro _filtroAtual = PeriodoFiltro.semana;
   bool _isLoading = true;
+  int? _perfilUsuario;
+List<Map<String, dynamic>> _desempenhoFuncionarios = [];
 
   // Dados dos gráficos
   List<Map<String, dynamic>> _dadosPizza = [];
@@ -31,10 +37,31 @@ class _DashboardVendasScreenState extends State<DashboardVendasScreen> {
   List<Map<String, dynamic>> _produtosNaoVendidos = [];
 
   @override
-  void initState() {
-    super.initState();
-    _carregarDados();
-  }
+void initState() {
+  super.initState();
+  _perfilUsuario = SessaoService.instance.usuarioAtual?.idPerfil;
+  _carregarDados();
+  Timer? _reloadTimer;
+
+_syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+  if (!mounted) return;
+  
+  // 🔥 DEBOUNCE: Aguardar 2 segundos antes de recarregar
+  _reloadTimer?.cancel();
+  _reloadTimer = Timer(const Duration(seconds: 2), () {
+    if (mounted) {
+      _carregarDados();
+    }
+  });
+});
+
+@override
+void dispose() {
+  _reloadTimer?.cancel(); // 🔥 NÃO ESQUECER
+  _syncEventsSubscription?.cancel();
+  super.dispose();
+}
+}
 
 Future<void> _carregarDados() async {
     setState(() => _isLoading = true);
@@ -103,12 +130,41 @@ Future<void> _carregarDados() async {
         ORDER BY p.nome_produto ASC
       ''', [dataIso]);
 
+
+// 5. Desempenho de Funcionários (apenas Admin) - 🔥 INCLUI CARGO
+List<Map<String, dynamic>> desempenho = [];
+if (_perfilUsuario == 1) {
+  desempenho = await db.rawQuery('''
+    SELECT 
+      u.id_usuario,
+      u.nome || ' ' || u.apelido as nome_completo,
+      CASE u.idperfil
+        WHEN 1 THEN 'Administrador'
+        WHEN 2 THEN 'Gerente'
+        WHEN 3 THEN 'Funcionário'
+        ELSE 'Usuário'
+      END as cargo,
+      COUNT(DISTINCT ped.id_pedido) as total_pedidos,
+      SUM(ped.total) as total_vendas,
+      COUNT(DISTINCT DATE(ped.data_pedido)) as dias_ativos
+    FROM pedido ped
+    INNER JOIN usuario u ON ped.id_usuario = u.id_usuario
+    WHERE ped.data_pedido >= ? 
+      AND ped.status_pedido = 'finalizado'
+      AND u.idperfil IN (1, 2, 3)
+    GROUP BY u.id_usuario, u.nome, u.apelido, u.idperfil
+    ORDER BY total_vendas DESC
+  ''', [dataIso]);
+
+}
+
       setState(() {
         _dadosPizza = pizza;
         _dadosBarra = barra;
         _top5Produtos = top5;
         _produtosNaoVendidos = naoVendidos;
         _isLoading = false;
+        _desempenhoFuncionarios = desempenho;
       });
     } catch (e) {
       debugPrint('Erro ao carregar dashboard: $e');
@@ -169,6 +225,10 @@ Widget build(BuildContext context) {
                       _buildGraficoPizza(),
                       const SizedBox(height: 30),
                       _buildTop5Section(),
+                      if (_perfilUsuario == 1) // Apenas administradores
+  const SizedBox(height: 30),
+if (_perfilUsuario == 1)
+  _buildDesempenhoFuncionarios(),
                     ],
                   ),
                 ),
@@ -211,36 +271,20 @@ Widget build(BuildContext context) {
     );
   }
 
-  Widget _buildResumoCards() {
-    final totalVendas = _dadosBarra.fold<double>(
-      0,
-      (sum, item) => sum + ((item['total_vendas'] as num?)?.toDouble() ?? 0),
-    );
-    final numPedidos = _dadosBarra.length;
-    final ticketMedio = numPedidos > 0 ? totalVendas / numPedidos : 0;
-
-    return Row(
-      children: [
-        Expanded(
-          child: _buildCard(
-            'Total de Vendas',
-            'MT ${totalVendas.toStringAsFixed(2)}',
-            Icons.attach_money,
-            Colors.green,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildCard(
-            'Ticket Médio',
-            'MT ${ticketMedio.toStringAsFixed(2)}',
-            Icons.shopping_cart,
-            Colors.blue,
-          ),
-        ),
-      ],
-    );
-  }
+Widget _buildResumoCards() {
+  final totalVendas = _dadosBarra.fold<double>(
+    0,
+    (sum, item) => sum + ((item['total_vendas'] as num?)?.toDouble() ?? 0),
+  );
+  
+  // 🔥 REMOVIDO: cálculo de ticket médio e segundo card
+  return _buildCard(
+    'Total de Vendas',
+    'MT ${totalVendas.toStringAsFixed(2)}',
+    Icons.attach_money,
+    Colors.green,
+  );
+}
 
   Widget _buildCard(String titulo, String valor, IconData icone, Color cor) {
     return Container(
@@ -580,4 +624,142 @@ Widget build(BuildContext context) {
       ],
     );
   }
+
+  // ADICIONAR este método na classe _DashboardVendasScreenState:
+Widget _buildDesempenhoFuncionarios() {
+  if (_desempenhoFuncionarios.isEmpty) {
+    return _buildEmptyState('Sem dados de desempenho para este período.');
+  }
+
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          const Icon(Icons.leaderboard, color: Colors.deepOrange),
+          const SizedBox(width: 8),
+          const Text(
+            'Desempenho de usuários',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      
+      // Ranking em cards
+      ..._desempenhoFuncionarios.asMap().entries.map((entry) {
+        final index = entry.key;
+        final func = entry.value;
+        
+        final medalha = index == 0 ? '🥇' : index == 1 ? '🥈' : index == 2 ? '🥉' : '${index + 1}º';
+        final corBorda = index == 0 ? Colors.amber : index == 1 ? Colors.grey : index == 2 ? Colors.orange.shade700 : Colors.blue.shade100;
+        
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: corBorda, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.shade200,
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Text(
+                    medalha,
+                    style: const TextStyle(fontSize: 28),
+                  ),
+                  const SizedBox(width: 12),
+                Expanded(
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // 🔥 NOVO: Exibir cargo antes do nome
+      Text(
+        func['cargo'] as String,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey[600],
+          letterSpacing: 0.5,
+        ),
+      ),
+      const SizedBox(height: 2),
+      Text(
+        func['nome_completo'] as String,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      Text(
+        '${func['total_pedidos']} pedidos em ${func['dias_ativos']} dias',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.grey[600],
+        ),
+      ),
+    ],
+  ),
+),
+                 // Dentro do Row dos dados do funcionário, substituir a Column à direita:
+Column(
+  crossAxisAlignment: CrossAxisAlignment.end,
+  children: [
+    Text(
+      'MT ${(func['total_vendas'] as num).toStringAsFixed(2)}',
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.green,
+      ),
+    ),
+    // 🔥 REMOVIDO: texto do ticket médio
+  ],
+),
+                ],
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Barra de progresso visual
+              Stack(
+                children: [
+                  Container(
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  FractionallySizedBox(
+                    widthFactor: (func['total_vendas'] as num) / 
+                        (_desempenhoFuncionarios.first['total_vendas'] as num),
+                    child: Container(
+                      height: 8,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.green.shade400, Colors.teal],
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }),
+    ],
+  );
+}
 }

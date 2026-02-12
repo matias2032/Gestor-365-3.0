@@ -15,6 +15,9 @@ import 'package:sqflite/sqflite.dart';
 import 'supabase_storage_service.dart';
 import 'estoque_alerta_service.dart';
 import 'notificacao_estoque_service.dart';
+import 'sync_events_service.dart';
+import 'dart:math';
+
 
 
 
@@ -87,6 +90,7 @@ class SupabaseSyncService {
   RealtimeChannel? _produtosChannel;
   RealtimeChannel? _pedidosChannel;
   RealtimeChannel? _categoriasChannel;
+  RealtimeChannel? _movimentosChannel;
 
   // ==========================================
   // INICIALIZAÇÃO
@@ -144,16 +148,22 @@ class SupabaseSyncService {
 }
 
   Future<String> _getOrCreateDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? deviceId = prefs.getString('device_id');
+  final prefs = await SharedPreferences.getInstance();
+  String? deviceId = prefs.getString('device_id');
 
-    if (deviceId == null) {
-      deviceId = 'device_${DateTime.now().millisecondsSinceEpoch}';
-      await prefs.setString('device_id', deviceId);
-    }
-
-    return deviceId;
+  if (deviceId == null) {
+    // 🔥 SOLUÇÃO: Adicionar componente aleatório
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final random = (timestamp * 997) % 999999; // Hash pseudo-aleatório
+    deviceId = 'device_${timestamp}_$random';
+    await prefs.setString('device_id', deviceId);
+    print('🆕 Device ID gerado: $deviceId'); // Log para debug
+  } else {
+    print('📱 Device ID carregado: $deviceId'); // Log para debug
   }
+
+  return deviceId;
+}
 
   Future<void> _loadLastSyncTime() async {
     final prefs = await SharedPreferences.getInstance();
@@ -651,6 +661,7 @@ Future<void> _syncPedidos() async {
       final pedidoData = {
         'id_pedido': idPedido,
         'reference': pedidoMap['reference'],
+         'nome_pedido': pedidoMap['nome_pedido'],
         'id_usuario': pedidoMap['id_usuario'],
         'telefone': pedidoMap['telefone'],
         'email': pedidoMap['email'],
@@ -1322,7 +1333,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     return await _createPedidoOffline(pedido, itens);
   }
   
-  // 🔥 NOVO: Gerar reference ANTES (para verificação posterior)
+  // 🔥 Gerar reference ANTES (para verificação posterior)
   final reference = 'PED-${DateTime.now().millisecondsSinceEpoch}-${_deviceId?.substring(0, 8) ?? ""}';
   
   // Teste de conexão
@@ -1335,10 +1346,10 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     
   } on TimeoutException {
     print('⚠️ Conexão instável - criando offline');
-    return await _createPedidoOffline(pedido, itens, reference); // 🔥 PASSA REFERENCE
+    return await _createPedidoOffline(pedido, itens, reference);
   } catch (e) {
     print('⚠️ Erro no teste de conexão: $e - criando offline');
-    return await _createPedidoOffline(pedido, itens, reference); // 🔥 PASSA REFERENCE
+    return await _createPedidoOffline(pedido, itens, reference);
   }
   
   // ONLINE: Usar RPC
@@ -1351,6 +1362,9 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     }).toList();
     
     print('🔄 Criando pedido no Supabase via RPC (ref: $reference)...');
+    if (pedido.nomePedido != null) {
+      print('📝 Nome do pedido: "${pedido.nomePedido}"');
+    }
     
     final response = await _supabase.rpc('criar_pedido_completo', params: {
       'p_reference': reference,
@@ -1363,6 +1377,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
       'p_bairro': pedido.bairro,
       'p_ponto_referencia': pedido.pontoReferencia,
       'p_endereco_json': pedido.enderecoJson,
+      'p_nome_pedido': pedido.nomePedido, // 🔥 ADICIONAR ESTE PARÂMETRO
     }).timeout(
       const Duration(seconds: 10),
       onTimeout: () => throw TimeoutException('Timeout ao criar pedido'),
@@ -1383,13 +1398,12 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     print('   Itens: $itensCriados');
     print('   Estoque: ${estoqueDebitado ? "Debitado ✓" : "Erro ✗"}');
     
-    // 🔥 NOVO: Criar localmente com try-catch isolado
+    // 🔥 Criar localmente com try-catch isolado
     try {
       await _criarPedidoLocalAposRPC(pedido, itens, idSupabase, reference, total);
       print('✅ Pedido sincronizado localmente');
     } catch (e) {
       print('⚠️ Erro ao criar localmente (pedido existe no Supabase): $e');
-      // 🔥 NOVO: Adicionar à fila de sincronização para tentar depois
       _addToOfflineQueue(OfflineOperation(
         type: 'sync_pedido_existente',
         data: {'id_pedido': idSupabase, 'reference': reference},
@@ -1402,7 +1416,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
   } on TimeoutException catch (e) {
     print('⏱️ Timeout: $e');
     
-    // 🔥 NOVO: Verificar se pedido foi criado apesar do timeout
+    // Verificar se pedido foi criado apesar do timeout
     final pedidoExistente = await _verificarPedidoRemoto(reference);
     
     if (pedidoExistente != null) {
@@ -1410,7 +1424,6 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
       final idSupabase = pedidoExistente['id_pedido'] as int;
       final total = (pedidoExistente['total'] as num).toDouble();
       
-      // Criar localmente
       try {
         await _criarPedidoLocalAposRPC(pedido, itens, idSupabase, reference, total);
       } catch (e) {
@@ -1432,14 +1445,14 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
   } catch (e) {
     print('❌ Erro ao criar pedido: $e');
     
-    // 🔥 NOVO: Verificar se é erro de rede ou de validação
+    // Verificar se é erro de validação
     if (e.toString().contains('Estoque insuficiente') || 
         e.toString().contains('não encontrado') ||
         e.toString().contains('obrigatório')) {
-      rethrow; // Propagar erros de validação
+      rethrow;
     }
     
-    // 🔥 NOVO: Para outros erros, verificar se pedido foi criado
+    // Para outros erros, verificar se pedido foi criado
     final pedidoExistente = await _verificarPedidoRemoto(reference);
     
     if (pedidoExistente != null) {
@@ -1464,6 +1477,7 @@ Future<int> createPedido(Pedido pedido, List<ItemPedido> itens) async {
     return await _createPedidoOffline(pedido, itens, reference);
   }
 }
+
 
 // 🔥 NOVO MÉTODO: Verificar se pedido existe no Supabase
 Future<Map<String, dynamic>?> _verificarPedidoRemoto(String reference) async {
@@ -1508,6 +1522,7 @@ Future<void> _criarPedidoLocalAposRPC(
       total: total,
       statusPedido: 'por finalizar',
       dataPedido: DateTime.now().toIso8601String(),
+      // nomePedido já está em pedido.nomePedido, não precisa passar aqui
     );
     
     await txn.insert(
@@ -1524,7 +1539,6 @@ Future<void> _criarPedidoLocalAposRPC(
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       
-      // 🔥 IMPORTANTE: Debitar estoque localmente
       await txn.rawUpdate(
         'UPDATE produto SET quantidade_estoque = quantidade_estoque - ? WHERE id_produto = ?',
         [item.quantidade, item.idProduto],
@@ -1533,11 +1547,12 @@ Future<void> _criarPedidoLocalAposRPC(
   });
 }
 
+
 // 🔥 MODIFICADO: Aceitar reference como parâmetro
 Future<int> _createPedidoOffline(
   Pedido pedido, 
   List<ItemPedido> itens,
-  [String? reference] // 🔥 NOVO: parâmetro opcional
+  [String? reference]
 ) async {
   print('📵 Modo offline - criando pedido localmente');
   
@@ -1545,11 +1560,10 @@ Future<int> _createPedidoOffline(
     final db = await _localDb.database;
     
     return await db.transaction((txn) async {
-      // 🔥 USAR reference passado ou gerar novo
       final refFinal = reference ?? 'OFFLINE-${DateTime.now().millisecondsSinceEpoch}';
       
       final pedidoMap = pedido.copyWith(
-        reference: refFinal, // 🔥 USA REFERENCE CONSISTENTE
+        reference: refFinal,
         statusPedido: 'por finalizar',
       ).toMap();
       
@@ -1581,13 +1595,13 @@ Future<int> _createPedidoOffline(
         whereArgs: [idLocal],
       );
       
-      // ✅ ADICIONAR À FILA OFFLINE
+      // 🔥 ADICIONAR À FILA OFFLINE COM NOME_PEDIDO
       _addToOfflineQueue(OfflineOperation(
         type: 'create_pedido_completo',
         data: {
           'id_pedido_local': idLocal,
-          'reference': refFinal, // 🔥 INCLUIR REFERENCE
-          'pedido': pedidoMap,
+          'reference': refFinal,
+          'pedido': pedidoMap, // 🔥 JÁ CONTÉM nome_pedido
           'itens': itens.map((i) => {
             'id_produto': i.idProduto,
             'quantidade': i.quantidade,
@@ -1599,6 +1613,7 @@ Future<int> _createPedidoOffline(
       ));
       
       print('✅ Pedido #$idLocal criado offline (ref: $refFinal)');
+      print('   Nome: ${pedido.nomePedido ?? "(sem nome)"}'); // 🔥 LOG DIAGNÓSTICO
       
       return idLocal;
     });
@@ -1608,6 +1623,7 @@ Future<int> _createPedidoOffline(
     rethrow;
   }
 }
+
 
 // ==========================================
 // ADICIONAR ITEM A PEDIDO EXISTENTE
@@ -2863,11 +2879,11 @@ case 'create_pedido_completo':
     final pedidoData = operation.data['pedido'] as Map<String, dynamic>;
     final itensData = operation.data['itens'] as List<dynamic>;
     final idPedidoLocal = operation.data['id_pedido_local'] as int;
-    final reference = operation.data['reference'] as String; // 🔥 NOVO: obter reference
+    final reference = operation.data['reference'] as String;
     
     print('🔄 Sincronizando pedido offline (ref: $reference)...');
     
-    // 🔥 NOVO: Verificar se pedido já existe no Supabase
+    // Verificar se pedido já existe no Supabase
     final pedidoExistente = await _supabase
         .from('pedidos')
         .select('id_pedido, total')
@@ -2875,7 +2891,6 @@ case 'create_pedido_completo':
         .maybeSingle();
     
     if (pedidoExistente != null) {
-      // 🔥 PEDIDO JÁ EXISTE: Apenas atualizar IDs locais
       final idSupabase = pedidoExistente['id_pedido'] as int;
       
       print('✅ Pedido já existe no Supabase (ID: $idSupabase)');
@@ -2896,10 +2911,10 @@ case 'create_pedido_completo':
       );
       
       print('✅ IDs locais atualizados para ID Supabase $idSupabase');
-      return; // 🔥 SAIR SEM CRIAR NOVAMENTE
+      return;
     }
     
-    // 🔥 PEDIDO NÃO EXISTE: Usar RPC (mais seguro que INSERT manual)
+    // 🔥 PEDIDO NÃO EXISTE: Usar RPC COM NOME_PEDIDO
     final itensJson = itensData.map((item) => {
       'id_produto': item['id_produto'],
       'quantidade': item['quantidade'],
@@ -2918,6 +2933,7 @@ case 'create_pedido_completo':
       'p_bairro': pedidoData['bairro'],
       'p_ponto_referencia': pedidoData['ponto_referencia'],
       'p_endereco_json': pedidoData['endereco_json'],
+      'p_nome_pedido': pedidoData['nome_pedido'], // 🔥 ADICIONAR AQUI
     });
     
     if (response.isEmpty) {
@@ -2946,9 +2962,10 @@ case 'create_pedido_completo':
     
   } catch (e) {
     print('❌ Erro ao sincronizar pedido offline: $e');
-    rethrow; // Mantém na fila para próxima tentativa
+    rethrow;
   }
   break;
+  
 
 case 'sync_pedido_existente':
   try {
@@ -3186,8 +3203,10 @@ void dispose() {
   _produtosChannel?.unsubscribe();
   _pedidosChannel?.unsubscribe();
   _categoriasChannel?.unsubscribe(); // 🔥 ADICIONAR
+  _movimentosChannel?.unsubscribe(); // 🔥 ADICIONAR
   _statusStreamController.close();
   _erroStreamController.close();
+  
 }
 
 
@@ -3758,6 +3777,7 @@ Future<void> _syncPedidosEspecificos(List<int> ids) async {
       final pedidoData = {
         'id_pedido': idPedido,
         'reference': pedidoMap['reference'],
+         'nome_pedido': pedidoMap['nome_pedido'],
         'id_usuario': pedidoMap['id_usuario'],
         'telefone': pedidoMap['telefone'],
         'email': pedidoMap['email'],
@@ -3967,7 +3987,7 @@ Future<void> _syncMovimentosEspecificos(List<int> ids) async {
 }
 
 void _setupRealtimeListeners() {
-  print('🔧 Configurando listeners Realtime com sincronização seletiva...');
+  print('🔧 Configurando listeners Realtime com broadcast de eventos...');
 
   // ==========================================
   // LISTENER PARA CATEGORIAS
@@ -3981,17 +4001,17 @@ void _setupRealtimeListeners() {
         callback: (payload) async {
           print('🔔 Mudança detectada em categorias: ${payload.eventType}');
           
-          // 🔥 IGNORAR mudanças deste dispositivo
+          // ✅ CORRETO: Verificação de device_id
           if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
+            print('⏭️  Ignorando mudança criada por este dispositivo');
             return;
           }
           
-          // 🔥 DELETAR: Sincronizar todas as categorias (para detectar exclusões)
+          // ✅ CORRETO: Tratamento de DELETE
           if (payload.eventType == PostgresChangeEvent.delete) {
             final idCategoria = payload.oldRecord?['id_categoria'] as int?;
             if (idCategoria != null) {
-              print('🗑️ Categoria $idCategoria deletada - removendo localmente...');
+              print('🗑️  Categoria $idCategoria deletada - removendo localmente...');
               
               final db = await _localDb.database;
               await db.delete(
@@ -4000,19 +4020,32 @@ void _setupRealtimeListeners() {
                 whereArgs: [idCategoria],
               );
               
-              print('✅ Categoria $idCategoria removida do banco local');
+              // ✅ CORRETO: Emitir evento após delete
+              SyncEventsService.instance.emitir(
+                SyncEventType.categoriaAlterada,
+                idEntidade: idCategoria,
+              );
+              
+              print('✅ Categoria $idCategoria deletada + evento emitido');
             }
             return;
           }
           
-          // 🔥 INSERT/UPDATE: Sincronizar apenas a categoria alterada
+          // ✅ CORRETO: Tratamento de INSERT/UPDATE
           final idCategoria = payload.newRecord?['id_categoria'] as int?;
           if (idCategoria != null) {
             print('🔄 Sincronizando apenas categoria $idCategoria...');
             
             try {
               await _syncCategoriasEspecificas([idCategoria]);
-              print('✅ Categoria $idCategoria sincronizada via Realtime');
+              
+              // ✅ CORRETO: Emitir evento APÓS sincronização
+              SyncEventsService.instance.emitir(
+                SyncEventType.categoriaAlterada,
+                idEntidade: idCategoria,
+              );
+              
+              print('✅ Categoria $idCategoria sincronizada + evento emitido');
             } catch (e) {
               print('❌ Erro ao sincronizar categoria $idCategoria: $e');
             }
@@ -4033,38 +4066,53 @@ void _setupRealtimeListeners() {
         callback: (payload) async {
           print('🔔 Mudança detectada em produtos: ${payload.eventType}');
           
-          // 🔥 IGNORAR mudanças deste dispositivo
+          // ✅ CORRETO: Verificação de device_id
           if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
+            print('⏭️  Ignorando mudança criada por este dispositivo');
             return;
           }
           
-          // 🔥 DELETAR: Remover localmente
+          // ✅ CORRETO: Tratamento de DELETE
           if (payload.eventType == PostgresChangeEvent.delete) {
             final idProduto = payload.oldRecord?['id_produto'] as int?;
             if (idProduto != null) {
-              print('🗑️ Produto $idProduto deletado - removendo localmente...');
+              print('🗑️  Produto $idProduto deletado - removendo localmente...');
               
               final db = await _localDb.database;
               await db.delete('produto', where: 'id_produto = ?', whereArgs: [idProduto]);
               await db.delete('produto_categoria', where: 'id_produto = ?', whereArgs: [idProduto]);
               await db.delete('produto_imagem', where: 'id_produto = ?', whereArgs: [idProduto]);
               
-              print('✅ Produto $idProduto removido do banco local');
-              notificarMudancaEstoque();
+              // ✅ CORRETO: Emitir eventos
+              SyncEventsService.instance.emitir(
+                SyncEventType.produtoAlterado,
+                idEntidade: idProduto,
+              );
+              SyncEventsService.instance.emitir(SyncEventType.estoqueAlterado);
+              notificarMudancaEstoque(); // Manter para compatibilidade
+              
+              print('✅ Produto $idProduto deletado + eventos emitidos');
             }
             return;
           }
           
-          // 🔥 INSERT/UPDATE: Sincronizar apenas o produto alterado
+          // ✅ CORRETO: Tratamento de INSERT/UPDATE
           final idProduto = payload.newRecord?['id_produto'] as int?;
           if (idProduto != null) {
             print('🔄 Sincronizando apenas produto $idProduto...');
             
             try {
               await _syncProdutosEspecificos([idProduto]);
-              print('✅ Produto $idProduto sincronizado via Realtime');
-              notificarMudancaEstoque();
+              
+              // ✅ CORRETO: Emitir eventos APÓS sincronização
+              SyncEventsService.instance.emitir(
+                SyncEventType.produtoAlterado,
+                idEntidade: idProduto,
+              );
+              SyncEventsService.instance.emitir(SyncEventType.estoqueAlterado);
+              notificarMudancaEstoque(); // Manter para compatibilidade
+              
+              print('✅ Produto $idProduto sincronizado + eventos emitidos');
             } catch (e) {
               print('❌ Erro ao sincronizar produto $idProduto: $e');
             }
@@ -4085,35 +4133,48 @@ void _setupRealtimeListeners() {
         callback: (payload) async {
           print('🔔 Mudança detectada em pedidos: ${payload.eventType}');
           
-          // 🔥 IGNORAR mudanças deste dispositivo
+          // ✅ CORRETO: Verificação de device_id
           if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
+            print('⏭️  Ignorando mudança criada por este dispositivo');
             return;
           }
           
-          // 🔥 DELETAR: Remover localmente
+          // ✅ CORRETO: Tratamento de DELETE
           if (payload.eventType == PostgresChangeEvent.delete) {
             final idPedido = payload.oldRecord?['id_pedido'] as int?;
             if (idPedido != null) {
-              print('🗑️ Pedido $idPedido deletado - removendo localmente...');
+              print('🗑️  Pedido $idPedido deletado - removendo localmente...');
               
               final db = await _localDb.database;
               await db.delete('item_pedido', where: 'id_pedido = ?', whereArgs: [idPedido]);
               await db.delete('pedido', where: 'id_pedido = ?', whereArgs: [idPedido]);
               
-              print('✅ Pedido $idPedido removido do banco local');
+              // ✅ CORRETO: Emitir evento
+              SyncEventsService.instance.emitir(
+                SyncEventType.pedidoAlterado,
+                idEntidade: idPedido,
+              );
+              
+              print('✅ Pedido $idPedido deletado + evento emitido');
             }
             return;
           }
           
-          // 🔥 INSERT/UPDATE: Sincronizar apenas o pedido alterado
+          // ✅ CORRETO: Tratamento de INSERT/UPDATE
           final idPedido = payload.newRecord?['id_pedido'] as int?;
           if (idPedido != null) {
             print('🔄 Sincronizando apenas pedido $idPedido...');
             
             try {
               await _syncPedidosEspecificos([idPedido]);
-              print('✅ Pedido $idPedido sincronizado via Realtime');
+              
+              // ✅ CORRETO: Emitir evento APÓS sincronização
+              SyncEventsService.instance.emitir(
+                SyncEventType.pedidoAlterado,
+                idEntidade: idPedido,
+              );
+              
+              print('✅ Pedido $idPedido sincronizado + evento emitido');
             } catch (e) {
               print('❌ Erro ao sincronizar pedido $idPedido: $e');
             }
@@ -4123,44 +4184,87 @@ void _setupRealtimeListeners() {
       .subscribe();
 
   // ==========================================
-  // LISTENER PARA MOVIMENTOS DE ESTOQUE
+  // 🔥 LISTENER PARA MOVIMENTOS DE ESTOQUE (CORRIGIDO)
   // ==========================================
-  _supabase
+  _movimentosChannel = _supabase  // 🔥 CRIAR VARIÁVEL _movimentosChannel
       .channel('movimentos_estoque_changes')
       .onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'movimento_estoque',
         callback: (payload) async {
-          print('🔔 Mudança detectada em movimentos de estoque: ${payload.eventType}');
+          print('🔔 Mudança detectada em movimentos: ${payload.eventType}');
           
-          // 🔥 IGNORAR mudanças deste dispositivo
+          // ✅ CORRETO: Verificação de device_id
           if (payload.newRecord?['device_id'] == _deviceId) {
-            print('⏭️ Ignorando mudança criada por este dispositivo');
+            print('⏭️  Ignorando mudança criada por este dispositivo');
             return;
           }
           
+          // 🔥 CORREÇÃO: Adicionar tratamento de DELETE
+          if (payload.eventType == PostgresChangeEvent.delete) {
+            final idMovimento = payload.oldRecord?['id_movimento'] as int?;
+            final idProduto = payload.oldRecord?['id_produto'] as int?;
+            
+            if (idMovimento != null) {
+              print('🗑️  Movimento $idMovimento deletado');
+              
+              final db = await _localDb.database;
+              await db.delete(
+                'movimento_estoque',
+                where: 'id_movimento = ?',
+                whereArgs: [idMovimento],
+              );
+              
+              // Atualizar estoque do produto se soubermos qual é
+              if (idProduto != null) {
+                await _syncProdutosEspecificos([idProduto]);
+                SyncEventsService.instance.emitir(
+                  SyncEventType.estoqueAlterado,
+                  idEntidade: idProduto,
+                );
+              } else {
+                SyncEventsService.instance.emitir(SyncEventType.estoqueAlterado);
+              }
+              
+              notificarMudancaEstoque();
+              print('✅ Movimento deletado + estoque atualizado');
+            }
+            return;
+          }
+          
+          // ✅ CORRETO: Tratamento de INSERT/UPDATE
           final idMovimento = payload.newRecord?['id_movimento'] as int?;
           final idProduto = payload.newRecord?['id_produto'] as int?;
-          
+
           if (idMovimento != null && idProduto != null) {
-            print('🔄 Sincronizando movimento $idMovimento e produto $idProduto...');
+            print('🔄 Sincronizando movimento $idMovimento (produto $idProduto)...');
             
             try {
               await _syncMovimentosEspecificos([idMovimento]);
               await _syncProdutosEspecificos([idProduto]);
               
-              print('✅ Movimento e estoque sincronizados via Realtime');
+              // ✅ CORRETO: Emitir eventos
+              SyncEventsService.instance.emitir(
+                SyncEventType.movimentoAlterado,  // 🔥 ADICIONAR este tipo
+                idEntidade: idMovimento,
+              );
+              SyncEventsService.instance.emitir(
+                SyncEventType.estoqueAlterado,
+                idEntidade: idProduto,
+              );
               notificarMudancaEstoque();
+              
+              print('✅ Movimento $idMovimento sincronizado + eventos emitidos');
             } catch (e) {
-              print('❌ Erro ao sincronizar movimento: $e');
+              print('❌ Erro ao sincronizar movimento $idMovimento: $e');
             }
           }
         },
       )
       .subscribe();
 
-  print('✅ Listeners Realtime configurados com sincronização seletiva!');
+  print('✅ Todos os listeners Realtime configurados com sistema de eventos!');
 }
 
 Future<void> forcarSincronizacaoCompleta() async {

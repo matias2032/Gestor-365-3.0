@@ -11,6 +11,9 @@ import '../models/produto.dart';      // 🔥 NOVO
 import '../models/produto_imagem.dart'; // 🔥 NOVO
 import 'dart:io';
 import '../widgets/conectividade_indicator.dart';
+import 'dart:async';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
+
 
 
 enum PeriodoFiltro {
@@ -30,6 +33,7 @@ class HistoricoPedidosScreen extends StatefulWidget {
 }
 
 class _HistoricoPedidosScreenState extends State<HistoricoPedidosScreen> {
+  StreamSubscription<SyncEvent>? _syncEventsSubscription;
   late Future<List<Pedido>> _pedidosFuture;
   PeriodoFiltro _filtroAtual = PeriodoFiltro.hoje;
   bool _isGeneratingPdf = false;
@@ -38,7 +42,29 @@ class _HistoricoPedidosScreenState extends State<HistoricoPedidosScreen> {
   void initState() {
     super.initState();
     _pedidosFuture = _loadPedidos();
+
+      _syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+  if (!mounted) return;
+  
+  switch (event.tipo) {
+    case SyncEventType.produtoAlterado:
+        case SyncEventType.pedidoAlterado:
+print('📲 Pedido ou produto alterado: recarregando histórico');
+      setState(() {
+        _pedidosFuture = _loadPedidos();
+      });
+      break;
+    default:
+      break;
   }
+});
+  }
+
+  @override
+void dispose() {
+  _syncEventsSubscription?.cancel(); // 🔥 ADICIONAR
+  super.dispose();
+}
 
   Future<List<Pedido>> _loadPedidos() async {
     final db = DatabaseService.instance;

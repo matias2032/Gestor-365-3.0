@@ -7,6 +7,9 @@ import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
 import '../services/supabase_sync_service.dart';
 import '../widgets/conectividade_indicator.dart';
+import 'dart:async';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
+
 
 
 
@@ -18,6 +21,7 @@ class GerenciarCategoriasScreen extends StatefulWidget {
 }
 
 class _GerenciarCategoriasScreenState extends State<GerenciarCategoriasScreen> {
+  StreamSubscription<SyncEvent>? _syncEventsSubscription;
   late Future<List<Categoria>> _categoriasFuture;
   final DatabaseService _dbService = DatabaseService.instance;
     final SupabaseSyncService _syncService = SupabaseSyncService.instance;
@@ -26,7 +30,32 @@ class _GerenciarCategoriasScreenState extends State<GerenciarCategoriasScreen> {
   void initState() {
     super.initState();
     _categoriasFuture = _loadCategorias();
+
+      _syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+  if (!mounted) return;
+  
+  switch (event.tipo) {
+  
+    case SyncEventType.categoriaAlterada:
+     case SyncEventType.produtoAlterado:
+  
+  
+      setState(() {
+        _categoriasFuture = _loadCategorias();
+      });
+      break;
+    default:
+      break;
   }
+});
+  }
+
+  @override
+void dispose() {
+  _syncEventsSubscription?.cancel(); // 🔥 ADICIONAR
+   super.dispose();
+}
+
 
   // Função para buscar as categorias e seus produtos
   Future<List<Categoria>> _loadCategorias() async {

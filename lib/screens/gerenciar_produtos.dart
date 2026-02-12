@@ -12,6 +12,8 @@ import '../services/estoque_alerta_service.dart';
 import '../widgets/cached_produto_image.dart';
 import '../widgets/conectividade_indicator.dart';
 import '../services/sessao_service.dart';
+import 'dart:async'; // 🔥 SE JÁ NÃO EXISTIR
+import '../services/sync_events_service.dart'; // 🔥 NOVO
 
 class GerenciarProdutosScreen extends StatefulWidget {
   const GerenciarProdutosScreen({super.key});
@@ -21,6 +23,7 @@ class GerenciarProdutosScreen extends StatefulWidget {
 }
 
 class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
+   StreamSubscription<SyncEvent>? _syncEventsSubscription;
   final SupabaseSyncService _syncService = SupabaseSyncService.instance;
   final DatabaseService _dbService = DatabaseService.instance;
   late Future<List<Produto>> _produtosFuture;
@@ -49,6 +52,35 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
     _produtosFuture = _fetchProdutos();
     _fetchCategorias();
     EstoqueAlertaService.instance.verificarEstoque();
+
+    _syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+  if (!mounted) return;
+  
+  switch (event.tipo) {
+    case SyncEventType.produtoAlterado:
+print('📲 Produto alterado: recarregando dados');
+      setState(() {
+        _produtosFuture = _fetchProdutos();
+      });
+      break;  
+   case SyncEventType.categoriaAlterada:
+  print('📲 Categoria alterada: recarregando categorias e produtos');
+  _fetchCategorias(); // 🔥 Chamar FORA do setState (é async)
+  setState(() {
+    _produtosFuture = _fetchProdutos();
+  });
+  break;
+
+    case SyncEventType.estoqueAlterado:
+  setState(() {
+        _produtosFuture = _fetchProdutos();
+      });
+      break;
+    default:
+      break;
+  }
+});
+
   }
 
   @override
@@ -56,6 +88,7 @@ class _GerenciarProdutosScreenState extends State<GerenciarProdutosScreen> {
     _nomeController.dispose();
     _precoMinController.dispose();
     _precoMaxController.dispose();
+     _syncEventsSubscription?.cancel(); 
     super.dispose();
   }
 

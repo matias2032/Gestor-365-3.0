@@ -1,9 +1,11 @@
 // lib/screens/detalhes_usuario.dart
-
 import 'package:flutter/material.dart';
-import 'package:bcrypt/bcrypt.dart';import '../models/usuario.dart';
+import 'package:bcrypt/bcrypt.dart';
+import 'dart:async';
+import '../models/usuario.dart';
 import '../services/base_de_dados.dart';
 import '../services/supabase_sync_service.dart';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
 
 class DetalhesUsuarioScreen extends StatefulWidget {
   final int usuarioId;
@@ -14,20 +16,46 @@ class DetalhesUsuarioScreen extends StatefulWidget {
 }
 
 class _DetalhesUsuarioScreenState extends State<DetalhesUsuarioScreen> {
+  StreamSubscription<SyncEvent>? _syncEventsSubscription; // 🔥 NOVO
   late Future<Usuario?> _usuarioFuture;
+  
   final DatabaseService _dbService = DatabaseService.instance;
-    final SupabaseSyncService _syncService = SupabaseSyncService.instance;
+  final SupabaseSyncService _syncService = SupabaseSyncService.instance;
 
   @override
   void initState() {
     super.initState();
-    _loadUsuario();
+    _usuarioFuture = _loadUsuario(); // 🔥 CORRIGIDO: Atribuir ao Future
+    
+    // 🔥 CORRIGIDO: Eventos corretos (usuarioAlterado)
+    // _syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+    //   if (!mounted) return;
+      
+    //   switch (event.tipo) {
+    //     case SyncEventType.usuarioAlterado:
+    //       // Se o usuário que estamos visualizando foi alterado
+    //       if (event.idEntidade == null || event.idEntidade == widget.usuarioId) {
+    //         print('📲 Usuário ${widget.usuarioId} alterado: recarregando detalhes');
+    //         setState(() {
+    //           _usuarioFuture = _loadUsuario();
+    //         });
+    //       }
+    //       break;
+    //     default:
+    //       break;
+    //   }
+    // });
   }
 
-  void _loadUsuario() {
-    setState(() {
-      _usuarioFuture = _dbService.readUsuario(widget.usuarioId);
-    });
+  // 🔥 CORRIGIDO: Retornar Future<Usuario?>
+  Future<Usuario?> _loadUsuario() async {
+    return await _dbService.readUsuario(widget.usuarioId);
+  }
+
+  @override
+  void dispose() {
+    _syncEventsSubscription?.cancel(); // 🔥 NOVO
+    super.dispose();
   }
 
   // Lógica para Desligar/Afastar

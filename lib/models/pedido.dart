@@ -10,6 +10,7 @@ class PedidoFields {
   static const String idUsuario = 'id_usuario';
   static const String telefone = 'telefone';
   static const String email = 'email';
+  static const String nomePedido = 'nome_pedido';
   static const String idTipoPagamento = 'idtipo_pagamento';
   // REMOVIDO: idTipoOrigemPedido e idTipoEntrega
   static const String dataPedido = 'data_pedido';
@@ -33,6 +34,8 @@ class Pedido {
   final String? telefone;
   final String? email;
   final int idTipoPagamento;
+  final String? nomePedido;
+
   // REMOVIDO: idTipoOrigemPedido e idTipoEntrega
   final String dataPedido;
   final String? dataFimPedido;
@@ -72,6 +75,7 @@ class Pedido {
     this.troco,
     this.ocultoCliente = 0,
     this.itens,
+    this.nomePedido,
     this.nomeUsuario,
   });
 
@@ -84,6 +88,7 @@ class Pedido {
       PedidoFields.email: email,
       PedidoFields.idTipoPagamento: idTipoPagamento,
       // REMOVIDO: idTipoOrigemPedido e idTipoEntrega
+         PedidoFields.nomePedido: nomePedido,
       PedidoFields.dataPedido: dataPedido,
       PedidoFields.dataFimPedido: dataFimPedido,
       PedidoFields.statusPedido: statusPedido,
@@ -110,6 +115,7 @@ class Pedido {
       // REMOVIDO: leitura de idTipoOrigemPedido e idTipoEntrega
       dataPedido: map[PedidoFields.dataPedido] as String,
       dataFimPedido: map[PedidoFields.dataFimPedido] as String?,
+      nomePedido: map[PedidoFields.nomePedido] as String?, // 🔥 ADICIONAR
       statusPedido: map[PedidoFields.statusPedido] as String? ?? 'por finalizar',
       notificacaoVista: map[PedidoFields.notificacaoVista] as int? ?? 0,
       total: (map[PedidoFields.total] as num).toDouble(),
@@ -139,6 +145,7 @@ class Pedido {
     double? total,
     String? enderecoJson,
     double? valorPagoManual,
+    String? nomePedido, // 🔥 ADICIONAR
     String? dataFinalizacao,
     String? bairro,
     String? pontoReferencia,
@@ -163,6 +170,7 @@ class Pedido {
       enderecoJson: enderecoJson ?? this.enderecoJson,
       valorPagoManual: valorPagoManual ?? this.valorPagoManual,
       dataFinalizacao: dataFinalizacao ?? this.dataFinalizacao,
+      nomePedido: nomePedido ?? this.nomePedido, // 🔥 ADICIONAR
       bairro: bairro ?? this.bairro,
       pontoReferencia: pontoReferencia ?? this.pontoReferencia,
       troco: troco ?? this.troco,

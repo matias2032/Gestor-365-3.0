@@ -97,8 +97,7 @@ Future<void> _carregarContadorDoUsuario() async {
         '/gerenciar_categorias',
         '/gerenciar_produtos',
         '/movimentos_estoque',
-        '/logs',
-        '/historico_pedidos',
+         '/historico_pedidos',
         
       ].contains(route);
     }
@@ -107,7 +106,7 @@ Future<void> _carregarContadorDoUsuario() async {
     if (idPerfil == 3) {
       return [
         '/menu',
-        '/gerenciar_produtos',
+        // '/gerenciar_produtos',
         '/dashboard',
       ].contains(route);
     }

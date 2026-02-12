@@ -1,6 +1,6 @@
 // lib/main.dart
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 // Serviços
 import 'services/sessao_service.dart';
@@ -52,6 +52,17 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+
+  
+  // Permitir todas as orientações
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+  
   
   try {
     await Firebase.initializeApp(
@@ -84,14 +95,36 @@ void _agendarProcessamentoNotificacaoInicial(RemoteMessage message) {
   });
 }
 
-// 🔥 SIMPLIFICADO: Lifecycle Observer (apenas atualiza timestamp)
+// 🔥 ATUALIZADO: Lifecycle Observer integrado com PushNotificationService
 class AppLifecycleObserver extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     print('🔄 Lifecycle: $state');
     
-    if (state == AppLifecycleState.resumed) {
-      SessaoService.instance.marcarAppAtivo();
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // Marcar app como ativo na sessão
+        SessaoService.instance.marcarAppAtivo();
+        
+        // 🔥 DELEGADO: O PushNotificationService já limpa notificações via _AppLifecycleListener
+        // Não precisamos duplicar essa lógica aqui
+        print('✅ App retomado - notificações sendo limpas pelo PushNotificationService');
+        break;
+        
+      case AppLifecycleState.paused:
+        print('⏸️ App pausado');
+        break;
+        
+      case AppLifecycleState.inactive:
+        print('💤 App inativo');
+        break;
+        
+      case AppLifecycleState.detached:
+        print('🔌 App desconectado');
+        break;
+        
+      default:
+        break;
     }
   }
 }
@@ -100,7 +133,6 @@ class MyApp extends StatefulWidget {
   const MyApp({super.key});
   
   static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
   static final GlobalKey<ScaffoldMessengerState> messengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
@@ -111,7 +143,6 @@ class ConectividadeListener {
   static bool _dialogAberto = false;
   static bool _processandoReconexao = false;
 
-  // 🔥 Corrigido: Não pede mais BuildContext no init
   static void inicializar() {
     ConectividadeService.instance.addListener((isOnline, forcarSync) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -121,7 +152,6 @@ class ConectividadeListener {
   }
 
   static void _onConnectivityChange(bool isOnline, bool forcarSync) async {
-    // Pegamos o contexto estável através da navigatorKey
     final context = MyApp.navigatorKey.currentContext;
     
     if (isOnline) {
@@ -188,13 +218,11 @@ class ConectividadeListener {
     }
   }
 
-  // 🔥 Corrigido: Usa a messengerKey em vez do context direto
   static void _mostrarSnackBar(
     String mensagem,
     Color cor,
     IconData icone,
   ) {
-    // Isso evita o erro "No ScaffoldMessenger found"
     MyApp.messengerKey.currentState?.hideCurrentSnackBar();
     MyApp.messengerKey.currentState?.showSnackBar(
       SnackBar(
@@ -240,10 +268,9 @@ class _MyAppState extends State<MyApp> {
     _lifecycleObserver = AppLifecycleObserver();
     WidgetsBinding.instance.addObserver(_lifecycleObserver);
     
-    // 🔥 NOVO: Aguardar primeiro frame para inicializar listener
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-       ConectividadeListener.inicializar();
+        ConectividadeListener.inicializar();
       }
     });
   }
@@ -278,7 +305,6 @@ class _MyAppState extends State<MyApp> {
               '/primeira_troca_senha'
             ];
             
-            // 🔥 Validar sessão antes de permitir rotas protegidas
             if (!rotasPublicas.contains(settings.name)) {
               if (!SessaoService.instance.isLogado) {
                 return MaterialPageRoute(

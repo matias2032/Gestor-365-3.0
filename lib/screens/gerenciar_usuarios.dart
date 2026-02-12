@@ -7,6 +7,9 @@ import '../screens/detalhes_usuario.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
 import '../widgets/conectividade_indicator.dart';
+import 'dart:async';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
+
 
 
 enum StatusFiltro {
@@ -23,6 +26,7 @@ class UsuarioListScreen extends StatefulWidget {
 }
 
 class _UsuarioListScreenState extends State<UsuarioListScreen> {
+  StreamSubscription<SyncEvent>? _syncEventsSubscription;
   late Future<List<Usuario>> _usuariosFuture;
   StatusFiltro _filtroAtual = StatusFiltro.todos;
 
@@ -30,7 +34,29 @@ class _UsuarioListScreenState extends State<UsuarioListScreen> {
   void initState() {
     super.initState();
     _usuariosFuture = _loadUsuarios();
+
+      _syncEventsSubscription = SyncEventsService.instance.eventStream.listen((event) {
+  if (!mounted) return;
+  
+//   switch (event.tipo) {
+//     case SyncEventType.usuarioAlterado:
+// print('📲 Usuário alterado: recarregando dados');
+//       setState(() {
+//         _usuariosFuture = _loadUsuarios();
+//       });
+//       break;
+//     default:
+//       break;
+//   }
+});
   }
+
+ @override
+  void dispose() {
+      _syncEventsSubscription?.cancel(); // 🔥 NOVO
+    super.dispose();
+  }
+
 
   // 🔥 NOVO: Filtra APENAS Gerentes (idperfil=2) e Funcionários (idperfil=3)
   Future<List<Usuario>> _loadUsuarios() async {

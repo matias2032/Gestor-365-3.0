@@ -10,7 +10,7 @@ import '../models/pedido.dart';
 import 'dart:async';
 import'../services/estoque_alerta_service.dart';
 // Definindo a versão do DB como 2 para ativar o onUpgrade se já existir a v1
-const int _dbVersion = 7;
+const int _dbVersion = 9;
 
 class DatabaseService {
   // Padrão Singleton
@@ -74,6 +74,7 @@ class DatabaseService {
 
     // 🔥 NOVO: Adicionar coluna device_id se estiver atualizando para v6+
   if (oldVersion < 6) {
+
     print('➕ Adicionando coluna device_id à tabela movimento_estoque...');
     try {
       await db.execute('ALTER TABLE movimento_estoque ADD COLUMN device_id TEXT');
@@ -83,8 +84,29 @@ class DatabaseService {
     }
   }
 
+if (oldVersion < 8) { // Incrementar versão atual
+    print('➕ Adicionando coluna nome_pedido...');
+    try {
+      await db.execute('ALTER TABLE pedido ADD COLUMN nome_pedido TEXT');
+      print('✅ Coluna nome_pedido adicionada com sucesso!');
+    } catch (e) {
+      print('⚠️ Erro ao adicionar nome_pedido: $e');
+    }
+}
+
+if (oldVersion < 9) { // Incrementar versão atual
+    print('➕ Atualizando tipo de pagamento...');
+    try {
+      await db.execute("UPDATE tipo_pagamento SET tipo_pagamento = 'Dinheiro em espécie' WHERE idtipo_pagamento = 1;");
+      print('✅ Tipo de pagamento atualizado com sucesso!');
+    } catch (e) {
+      print('⚠️ Erro ao atualizar tipo de pagamento: $e');
+    }
+}
     print('✅ Migração concluída de V$oldVersion para V$newVersion.');
 }
+
+
 
 
   // ==========================================================
@@ -217,6 +239,7 @@ await db.execute('''
   CREATE TABLE pedido (
     id_pedido INTEGER PRIMARY KEY AUTOINCREMENT,
     reference TEXT UNIQUE,
+      nome_pedido TEXT,
     id_usuario INTEGER NOT NULL,
     telefone TEXT,
     email TEXT,
@@ -370,7 +393,7 @@ await db.execute('''
     // --- INSERÇÃO DE DADOS INICIAIS (SEEDING) ---
     
     // 10.1 Tipos de Pagamento
-    await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['Dinheiro vivo']);
+    await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['Dinheiro em espécie']);
     await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['VISA']);
     await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['M-Pesa']);
     await db.rawInsert("INSERT OR IGNORE INTO tipo_pagamento (tipo_pagamento) VALUES (?)", ['E-Mola']);

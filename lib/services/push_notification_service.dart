@@ -4,6 +4,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
 import '../main.dart';
 import 'sessao_service.dart';
+import 'estoque_alerta_service.dart';
 
 class PushNotificationService {
   static final PushNotificationService instance = PushNotificationService._();
@@ -14,6 +15,7 @@ class PushNotificationService {
   
   bool _inicializado = false;
   String? _fcmToken;
+  bool _appEmForeground = true;
 
   String? get fcmToken => _fcmToken;
 
@@ -57,6 +59,7 @@ class PushNotificationService {
 
     await _configurarNotificacoesLocais();
     _configurarHandlers();
+    _monitorarEstadoApp();
 
     _inicializado = true;
     print('✅ PushNotificationService inicializado');
@@ -81,16 +84,68 @@ class PushNotificationService {
     );
   }
 
+  // 🔥 NOVO: Monitorar estado do app (foreground/background)
+  void _monitorarEstadoApp() {
+    WidgetsBinding.instance.addObserver(_AppLifecycleListener(
+      onResumed: () {
+        _appEmForeground = true;
+        _limparNotificacoesAoAbrirApp();
+      },
+      onPaused: () {
+        _appEmForeground = false;
+      },
+    ));
+  }
+
   void _configurarHandlers() {
+    // 🔥 MODIFICADO: Só mostrar notificação se app estiver em background
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('📬 Mensagem recebida (foreground): ${message.notification?.title}');
-      _mostrarNotificacaoLocal(message);
+      
+      if (!_appEmForeground) {
+        // App está em background, mas processo ativo - mostrar notificação
+        _mostrarNotificacaoLocal(message);
+      } else {
+        // App está ativo - apenas atualizar dados silenciosamente
+        print('✋ App ativo - notificação suprimida (estilo WhatsApp)');
+        _atualizarEstoqueSilenciosamente();
+      }
     });
 
+    // Handler para quando usuário clica na notificação (app em background)
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       print('📬 Notificação aberta (background): ${message.data}');
       _navegarParaProdutos(message);
     });
+  }
+
+  // 🔥 NOVO: Atualizar estoque sem mostrar notificação
+  Future<void> _atualizarEstoqueSilenciosamente() async {
+    try {
+      await EstoqueAlertaService.instance.verificarEstoque();
+      print('🔄 Estoque atualizado silenciosamente');
+    } catch (e) {
+      print('⚠️ Erro ao atualizar estoque: $e');
+    }
+  }
+
+  // 🔥 NOVO: Limpar todas as notificações ao abrir o app
+  Future<void> _limparNotificacoesAoAbrirApp() async {
+    try {
+      // Cancelar todas as notificações locais pendentes
+      await _localNotifications.cancelAll();
+      
+      // Limpar badge no iOS
+      await _fcm.setForegroundNotificationPresentationOptions(
+        alert: false,
+        badge: false,
+        sound: false,
+      );
+      
+      print('✅ Notificações limpas ao abrir app');
+    } catch (e) {
+      print('⚠️ Erro ao limpar notificações: $e');
+    }
   }
 
   Future<void> _mostrarNotificacaoLocal(RemoteMessage message) async {
@@ -204,4 +259,29 @@ class PushNotificationService {
   }
 
   void dispose() {}
+}
+
+// 🔥 NOVO: Listener de ciclo de vida do app
+class _AppLifecycleListener extends WidgetsBindingObserver {
+  final VoidCallback onResumed;
+  final VoidCallback onPaused;
+
+  _AppLifecycleListener({
+    required this.onResumed,
+    required this.onPaused,
+  });
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        onResumed();
+        break;
+      case AppLifecycleState.paused:
+        onPaused();
+        break;
+      default:
+        break;
+    }
+  }
 }

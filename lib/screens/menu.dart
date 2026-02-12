@@ -2,13 +2,13 @@
 // lib/screens/menu.dart (COM CONTADOR SINCRONIZADO)
 
 import 'package:flutter/material.dart';
-import 'dart:async';
 import '../models/produto.dart';
 import '../models/categoria.dart';
 import '../services/base_de_dados.dart';
 import '../services/pedido_ativo_service.dart';
 import '../services/pedido_contador_service.dart'; // 🔥 NOVO IMPORT
 import '../models/produto_imagem.dart';
+import '../models/pedido.dart'; // 🔥 ADICIONAR ESTA LINHA
 import '../widgets/app_sidebar.dart';
 import '../widgets/theme_toggle_widget.dart';
 import '../services/supabase_sync_service.dart';
@@ -17,6 +17,8 @@ import '../widgets/estoque_alerta_popup.dart';
 import '../widgets/cached_produto_image.dart';
 import '../widgets/conectividade_indicator.dart';
 import '../services/conectividade_service.dart';
+import 'dart:async';
+import '../services/sync_events_service.dart'; // 🔥 NOVO
 
 
 
@@ -28,10 +30,12 @@ class MenuScreen extends StatefulWidget {
 }
 
 class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateMixin {
+  StreamSubscription<SyncEvent>? _syncEventsSubscription; // 🔥 NOVO
   final DatabaseService _dbService = DatabaseService.instance;
   final PedidoAtivoService _pedidoAtivoService = PedidoAtivoService.instance;
   final PedidoContadorService _contadorService = PedidoContadorService.instance; // 🔥 NOVO
   final _syncService = SupabaseSyncService.instance;
+
   
   late Future<List<Produto>> _produtosFuture;
   late AnimationController _animationController;
@@ -88,8 +92,44 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
         });
       }
     });
-  }
 
+ _syncEventsSubscription = SyncEventsService.instance.eventStream.listen(
+    (event) {
+      if (!mounted) return;
+      
+      switch (event.tipo) {
+        case SyncEventType.produtoAlterado:
+        case SyncEventType.categoriaAlterada:
+        case SyncEventType.estoqueAlterado:
+          print('📲 Recarregando produtos devido a ${event.tipo}');
+          setState(() {
+            _produtosFuture = _fetchProdutos();
+          });
+          break;
+          
+        case SyncEventType.pedidoAlterado:
+          print('📲 Atualizando contador de pedidos');
+          _atualizarContadorPedidos();
+          break;
+          
+        case SyncEventType.syncCompleta:
+          print('📲 Sincronização completa - recarregando tudo');
+          _fetchCategorias();
+          setState(() {
+            _produtosFuture = _fetchProdutos();
+          });
+          _atualizarContadorPedidos();
+          break;
+          
+        default:
+          break;
+      }
+    },
+    onError: (error) {
+      print('Erro no listener: $error');
+    },
+  );
+}
   @override
   void dispose() {
     _animationController.dispose();
@@ -98,6 +138,7 @@ class _MenuScreenState extends State<MenuScreen> with SingleTickerProviderStateM
     _precoMaxController.dispose();
     _estoqueSubscription?.cancel();
     _contadorSubscription?.cancel(); // 🔥 NOVO
+    _syncEventsSubscription?.cancel(); // 🔥 NOVO
     super.dispose();
   }
   // ADICIONAR MÉTODO NOVO:
@@ -144,10 +185,10 @@ Future<void> _sincronizarSeNecessario() async {
 
 Future<List<Produto>> _fetchProdutos() async {
   try {
-    // 🔥 LEITURA PURA DO BANCO LOCAL (SEM SYNC)
     final produtos = await _dbService.readAllProdutosWithAssoc();
     
-    return produtos.where((p) {
+    // Aplicar filtros
+    final produtosFiltrados = produtos.where((p) {
       if (p.ativo != 1) return false;
       
       if (_buscaNome.isNotEmpty && 
@@ -167,6 +208,29 @@ Future<List<Produto>> _fetchProdutos() async {
       
       return true;
     }).toList();
+    
+    // 🔥 NOVO: Ordenar por estoque (produtos com estoque baixo primeiro)
+    produtosFiltrados.sort((a, b) {
+      final qtdA = a.quantidadeEstoque ?? 999;
+      final qtdB = b.quantidadeEstoque ?? 999;
+      
+      // Prioridade 1: Esgotados (0)
+      if (qtdA == 0 && qtdB != 0) return -1;
+      if (qtdB == 0 && qtdA != 0) return 1;
+      
+      // Prioridade 2: Críticos (< 10)
+      if (qtdA < 10 && qtdB >= 10) return -1;
+      if (qtdB < 10 && qtdA >= 10) return 1;
+      
+      // Prioridade 3: Baixos (< 20)
+      if (qtdA < 20 && qtdB >= 20) return -1;
+      if (qtdB < 20 && qtdA >= 20) return 1;
+      
+      // Dentro da mesma categoria, ordenar pela quantidade
+      return qtdA.compareTo(qtdB);
+    });
+    
+    return produtosFiltrados;
   } catch (e) {
     print('Erro ao buscar produtos: $e');
     return [];
@@ -543,61 +607,70 @@ Widget build(BuildContext context) {
         drawer: const AppSidebar(currentRoute: '/menu'),
         body: Column(
           children: [
-            if (temPedidoAtivo)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.teal.shade50,
-                  border: Border(
-                    bottom: BorderSide(color: Colors.teal.shade200, width: 2),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                        color: Colors.teal,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.shopping_bag,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Pedido Ativo',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.teal,
-                            ),
-                          ),
-                          Text(
-                            'Pedido #$pedidoAtivoId - Produtos serão adicionados aqui',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.teal),
-                      tooltip: 'Novo Pedido',
-                      onPressed: _iniciarNovoPedido,
-                    ),
-                  ],
-                ),
+    if (temPedidoAtivo)
+  FutureBuilder<Pedido?>(
+    future: _syncService.readPedidoComDetalhes(pedidoAtivoId!),
+    builder: (context, snapshot) {
+      final nomePedido = snapshot.data?.nomePedido;
+      
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.teal.shade50,
+          border: Border(
+            bottom: BorderSide(color: Colors.teal.shade200, width: 2),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(
+                color: Colors.teal,
+                shape: BoxShape.circle,
               ),
+              child: const Icon(
+                Icons.shopping_bag,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Pedido Ativo',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  Text(
+                    nomePedido != null && nomePedido.isNotEmpty
+                        ? '"$nomePedido" (#$pedidoAtivoId) - Produtos serão adicionados aqui'
+                        : 'Pedido #$pedidoAtivoId - Produtos serão adicionados aqui',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.teal),
+              tooltip: 'Novo Pedido',
+              onPressed: _iniciarNovoPedido,
+            ),
+          ],
+        ),
+      );
+    },
+  ),
             AnimatedSize(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,

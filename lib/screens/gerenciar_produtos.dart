@@ -14,6 +14,7 @@ import '../widgets/conectividade_indicator.dart';
 import '../services/sessao_service.dart';
 import 'dart:async'; // 🔥 SE JÁ NÃO EXISTIR
 import '../services/sync_events_service.dart'; // 🔥 NOVO
+import '../services/validade_alerta_service.dart'; // 🔥 NOVO
 
 class GerenciarProdutosScreen extends StatefulWidget {
   const GerenciarProdutosScreen({super.key});
@@ -104,6 +105,17 @@ print('📲 Produto alterado: recarregando dados');
     return _perfilUsuario == 1 || _perfilUsuario == 2;
   }
 
+  int _calcularScore(Produto p) {
+  final qtd = p.quantidadeEstoque ?? 999;
+  int pesoEstoque = 0;
+  if (qtd == 0) pesoEstoque = 1000;
+  else if (qtd < 10) pesoEstoque = 500;
+  else if (qtd < 20) pesoEstoque = 200;
+
+  final pesoValidade = ValidadeAlertaService.scoreValidade(p.dataExpiracao);
+  return pesoEstoque + pesoValidade;
+}
+
   Future<List<Produto>> _fetchProdutos() async {
     try {
       final produtos = await _syncService.readAllProdutosWithAssoc();
@@ -137,17 +149,13 @@ print('📲 Produto alterado: recarregando dados');
       }).toList();
       
       // Ordenar por estoque (produtos com estoque baixo primeiro)
-      produtosFiltrados.sort((a, b) {
-        final qtdA = a.quantidadeEstoque ?? 999;
-        final qtdB = b.quantidadeEstoque ?? 999;
-        
-        if (qtdA < 10 && qtdB >= 10) return -1;
-        if (qtdB < 10 && qtdA >= 10) return 1;
-        if (qtdA < 20 && qtdB >= 20) return -1;
-        if (qtdB < 20 && qtdA >= 20) return 1;
-        
-        return qtdA.compareTo(qtdB);
-      });
+    produtosFiltrados.sort((a, b) {
+  final scoreA = _calcularScore(a);
+  final scoreB = _calcularScore(b);
+  return scoreB.compareTo(scoreA);
+});
+
+
       
       return produtosFiltrados;
     } catch (e) {
@@ -155,6 +163,8 @@ print('📲 Produto alterado: recarregando dados');
       return [];
     }
   }
+
+  
 
   Future<void> _fetchCategorias() async {
     try {
@@ -272,6 +282,8 @@ print('📲 Produto alterado: recarregando dados');
       icone = Icons.check_circle_outline;
     }
 
+    
+
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -303,6 +315,43 @@ print('📲 Produto alterado: recarregando dados');
       ),
     );
   }
+
+
+  Widget _buildValidadeIndicator(String? dataExpiracao) {
+  if (dataExpiracao == null || dataExpiracao.isEmpty) return const SizedBox.shrink();
+  final score = ValidadeAlertaService.scoreValidade(dataExpiracao);
+  final expirado = ValidadeAlertaService.estaExpirado(dataExpiracao);
+  if (score == 0 && !expirado) return const SizedBox.shrink();
+
+  final data = DateTime.parse(dataExpiracao);
+  final dias = data.difference(DateTime.now()).inDays;
+  final texto = expirado ? 'Expirado' : 'Expira em ${dias}d';
+  final cor = expirado ? Colors.red.shade700 : (score >= 800 ? Colors.red : Colors.orange);
+
+  return Align(
+    alignment: Alignment.centerLeft,
+    child: Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: cor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: cor.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.event_busy, size: 14, color: cor),
+          const SizedBox(width: 6),
+          Text(
+            texto,
+            style: TextStyle(color: cor, fontWeight: FontWeight.w600, fontSize: 12),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
@@ -611,6 +660,7 @@ print('📲 Produto alterado: recarregando dados');
                               ),
                             
                             _buildEstoqueIndicator(produto.quantidadeEstoque),
+                            _buildValidadeIndicator(produto.dataExpiracao),
                             
                             const SizedBox(height: 6),
                             Wrap(

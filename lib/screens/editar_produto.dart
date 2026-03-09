@@ -37,6 +37,7 @@ class _EditarProdutoScreenState extends State<EditarProdutoScreen> {
   final TextEditingController _estoqueController = TextEditingController();
   final TextEditingController _motivoEstoqueController = TextEditingController();
   final SupabaseSyncService _syncService = SupabaseSyncService.instance;
+  final TextEditingController _dataExpiracaoController = TextEditingController();
 
   Produto? _produtoOriginal; 
   List<ProdutoImagem> _imagensAtuais = [];
@@ -126,6 +127,7 @@ class _EditarProdutoScreenState extends State<EditarProdutoScreen> {
         _precoController.text = produto.preco.toString();
         _precoPromoController.text = produto.precoPromocional?.toString() ?? '';
         _estoqueController.text = produto.quantidadeEstoque?.toString() ?? '';
+        _dataExpiracaoController.text = produto.dataExpiracao ?? '';
         
         _estoqueOriginal = produto.quantidadeEstoque;
         
@@ -238,6 +240,7 @@ class _EditarProdutoScreenState extends State<EditarProdutoScreen> {
               : null,
           ativo: _ativo ? 1 : 0,
           quantidadeEstoque: novoEstoque,
+          dataExpiracao: _dataExpiracaoController.text.trim().isEmpty ? null : _dataExpiracaoController.text.trim(),
         );
 
         final idsCategorias = _categoriasSelecionadas.toList();
@@ -523,6 +526,31 @@ class _EditarProdutoScreenState extends State<EditarProdutoScreen> {
                   return null;
                 },
               ),
+
+              const SizedBox(height: 16),
+TextFormField(
+  controller: _dataExpiracaoController,
+  readOnly: true,
+  decoration: const InputDecoration(
+    labelText: 'Data de Expiração (Opcional)',
+    border: OutlineInputBorder(),
+    prefixIcon: Icon(Icons.event_busy),
+    hintText: 'Selecione uma data...',
+  ),
+  onTap: () async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      setState(() {
+        _dataExpiracaoController.text = picked.toIso8601String().split('T').first;
+      });
+    }
+  },
+),
               
               // Campo de Motivo (aparece quando há alteração)
               if (_estoqueAlterado) ...[

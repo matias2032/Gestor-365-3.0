@@ -18,6 +18,7 @@ import 'package:gestao_bar_pos/firebase_options.dart';
 import '../services/push_notification_service.dart';
 import '../services/conectividade_service.dart';
 import '../widgets/conectividade_dialog.dart';
+import '../services/validade_alerta_service.dart';
 
 // Telas
 import 'tela_login.dart';
@@ -191,6 +192,7 @@ await Future.delayed(const Duration(milliseconds: 300));
   await _updateProgress(0.87, 'Configurando alertas...');
   await NotificacaoEstoqueService.instance.inicializar();
   await EstoqueAlertaService.instance.inicializar();
+  await ValidadeAlertaService.instance.inicializar();
   await Future.delayed(const Duration(milliseconds: 300));
 
   // 9️⃣ Verificar Sessão COM VALIDAÇÃO

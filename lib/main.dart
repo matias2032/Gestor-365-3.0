@@ -42,6 +42,7 @@ import 'services/conectividade_service.dart';
 import 'widgets/conectividade_dialog.dart';
 import 'widgets/conectividade_indicator.dart';
 import 'services/supabase_sync_service.dart';
+import 'services/validade_alerta_service.dart';
 
 // 🔥 HANDLER BACKGROUND (TOP-LEVEL)
 @pragma('vm:entry-point')

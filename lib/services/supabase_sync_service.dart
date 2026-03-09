@@ -897,6 +897,7 @@ Future<int> createProduto(
           'quantidade_estoque': produto.quantidadeEstoque ?? 0,
           'ativo': produto.ativo,
           'data_cadastro': produto.dataCadastro ?? DateTime.now().toIso8601String(),
+          'data_expiracao': produto.dataExpiracao,
           'device_id': _deviceId,
         }).select().single();
 
@@ -1003,6 +1004,7 @@ Future<int> updateProduto(
         'preco_promocional': produto.precoPromocional,
         'quantidade_estoque': produto.quantidadeEstoque,
         'ativo': produto.ativo,
+        'data_expiracao': produto.dataExpiracao,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
         'device_id': _deviceId,
       }).eq('id_produto', produto.id!);
@@ -2366,6 +2368,7 @@ Future<void> validarFilaOffline() async {
       'quantidade_estoque': produto.quantidadeEstoque ?? 0,
       'ativo': produto.ativo,
       'data_cadastro': produto.dataCadastro ?? DateTime.now().toIso8601String(),
+      'data_expiracao': produto.dataExpiracao,
       'device_id': _deviceId,
     }).select().single();
 
@@ -2456,6 +2459,7 @@ Future<void> validarFilaOffline() async {
       'preco_promocional': produto.precoPromocional,
       'quantidade_estoque': produto.quantidadeEstoque,
       'ativo': produto.ativo,
+      'data_expiracao': produto.dataExpiracao,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
       'device_id': _deviceId,
     }).eq('id_produto', produto.id!);

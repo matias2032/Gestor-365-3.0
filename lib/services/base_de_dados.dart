@@ -10,7 +10,7 @@ import '../models/pedido.dart';
 import 'dart:async';
 import'../services/estoque_alerta_service.dart';
 // Definindo a versão do DB como 2 para ativar o onUpgrade se já existir a v1
-const int _dbVersion = 9;
+const int _dbVersion = 10;
 
 class DatabaseService {
   // Padrão Singleton
@@ -177,20 +177,19 @@ if (oldVersion < 9) { // Incrementar versão atual
       )
     ''');
     
-    await db.execute('''
-      CREATE TABLE produto (
-        id_produto $idType,
-        nome_produto $textType,
-        descricao $textNullable,
-        preco $doubleType,
-        quantidade_estoque INTEGER,
-        preco_promocional REAL,
-        ativo INTEGER DEFAULT 1,
-        data_cadastro TEXT DEFAULT (datetime('now', 'utc')),
-        data_expiracao TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
-    
-      )
-    ''');
+await db.execute('''
+  CREATE TABLE produto (
+    id_produto $idType,
+    nome_produto $textType,
+    descricao $textNullable,
+    preco $doubleType,
+    quantidade_estoque INTEGER,
+    preco_promocional REAL,
+    ativo INTEGER DEFAULT 1,
+    data_cadastro TEXT DEFAULT (datetime('now')),
+    data_expiracao TEXT -- Removido o NOT NULL e o DEFAULT fixo
+  )
+''');
     
     await db.execute('''
       CREATE TABLE produto_categoria (

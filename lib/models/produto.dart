@@ -6,7 +6,7 @@ import 'produto_imagem.dart';
 class ProdutoFields {
   static final List<String> values = [
     idProduto, nomeProduto, descricao, preco, precoPromocional, 
-    ativo, dataCadastro, quantidadeEstoque
+    ativo, dataCadastro, quantidadeEstoque, dataExpiracao
   ];
   
   static const String idProduto = 'id_produto';
@@ -18,6 +18,7 @@ class ProdutoFields {
   static const String dataCadastro = 'data_cadastro';
 
   static const String quantidadeEstoque = 'quantidade_estoque'; // 💡 NOVO
+  static const String dataExpiracao = 'data_expiracao';
 }
 
 class Produto {
@@ -30,6 +31,7 @@ class Produto {
   final String dataCadastro;
   // final int isDestaque;
   final int? quantidadeEstoque; // 💡 NOVO CAMPO
+  final String? dataExpiracao;
   
   final List<Categoria>? categoriasAssociadas; 
   final List<ProdutoImagem>? imagens; 
@@ -44,6 +46,7 @@ class Produto {
     required this.dataCadastro,
     // this.isDestaque = 0,
     this.quantidadeEstoque, // 💡 NOVO
+    this.dataExpiracao,
     this.categoriasAssociadas,
     this.imagens, 
   });
@@ -58,6 +61,7 @@ class Produto {
       ProdutoFields.ativo: ativo,
       ProdutoFields.dataCadastro: dataCadastro,
            ProdutoFields.quantidadeEstoque: quantidadeEstoque, // 💡 NOVO
+           ProdutoFields.dataExpiracao: dataExpiracao,
     };
   }
 
@@ -71,6 +75,7 @@ class Produto {
       ativo: map[ProdutoFields.ativo] as int? ?? 1,
       dataCadastro: map[ProdutoFields.dataCadastro] as String? ?? '',
           quantidadeEstoque: map[ProdutoFields.quantidadeEstoque] as int?, // 💡 NOVO
+          dataExpiracao: map[ProdutoFields.dataExpiracao] as String?,
     );
   }
   
@@ -84,6 +89,7 @@ class Produto {
     String? dataCadastro,
     // int? isDestaque,
     int? quantidadeEstoque, // 💡 NOVO
+    String? dataExpiracao,
     List<Categoria>? categoriasAssociadas,
     List<ProdutoImagem>? imagens,
   }) {
@@ -97,6 +103,7 @@ class Produto {
       dataCadastro: dataCadastro ?? this.dataCadastro,
       // isDestaque: isDestaque ?? this.isDestaque,
       quantidadeEstoque: quantidadeEstoque ?? this.quantidadeEstoque, // 💡 NOVO
+      dataExpiracao: dataExpiracao ?? this.dataExpiracao,
       categoriasAssociadas: categoriasAssociadas ?? this.categoriasAssociadas,
       imagens: imagens ?? this.imagens,
     );

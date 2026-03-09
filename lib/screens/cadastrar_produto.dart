@@ -32,6 +32,7 @@ class _CadastrarProdutoScreenState extends State<CadastrarProdutoScreen> {
   final TextEditingController _precoController = TextEditingController();
   final TextEditingController _precoPromoController = TextEditingController();
   final TextEditingController _estoqueController = TextEditingController();
+  final TextEditingController _dataExpiracaoController = TextEditingController();
 
   // Controladores de Imagem (Simulando 3 slots de upload inicialmente)
   final List<TextEditingController> _imagemControllers = [
@@ -68,6 +69,7 @@ class _CadastrarProdutoScreenState extends State<CadastrarProdutoScreen> {
     _precoController.dispose();
     _precoPromoController.dispose();
     _estoqueController.dispose();
+    _dataExpiracaoController.dispose();
     for (var controller in _imagemControllers) {
       controller.dispose();
     }
@@ -163,6 +165,7 @@ final novoProduto = Produto(
   ativo: _ativo ? 1 : 0,
   // isDestaque: _isDestaque ? 1 : 0,
   dataCadastro: DateTime.now().toIso8601String(),
+  dataExpiracao: _dataExpiracaoController.text.trim().isEmpty ? null : _dataExpiracaoController.text.trim(),
   quantidadeEstoque: int.tryParse(_estoqueController.text.trim()),
 );
 
@@ -372,6 +375,32 @@ TextFormField(
     return null;
   },
 ),
+
+const SizedBox(height: 16),
+TextFormField(
+  controller: _dataExpiracaoController,
+  readOnly: true,
+  decoration: const InputDecoration(
+    labelText: 'Data de Expiração (Opcional)',
+    border: OutlineInputBorder(),
+    prefixIcon: Icon(Icons.event_busy),
+    hintText: 'Selecione uma data...',
+  ),
+  onTap: () async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      setState(() {
+        _dataExpiracaoController.text = picked.toIso8601String().split('T').first;
+      });
+    }
+  },
+),
+
 const SizedBox(height: 16),
 
                     // --- 2. SWITCHES (ATIVO / DESTAQUE) ---

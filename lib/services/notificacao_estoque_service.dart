@@ -64,6 +64,12 @@ class NotificacaoEstoqueService {
         MyApp.navigatorKey.currentState?.pushReplacementNamed('/gerenciar_produtos');
       });
     }
+
+    if (response.payload == 'validade_alerta') {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    MyApp.navigatorKey.currentState?.pushReplacementNamed('/gerenciar_produtos');
+  });
+}
   }
 
   // 🔥 CORRIGIDO: Resumo Diário (18h) - SEM som customizado
@@ -197,6 +203,47 @@ Future<void> cancelarNotificacao(int id) async {
     print('✅ Notificação $id cancelada');
   } catch (e) {
     print('❌ Erro ao cancelar notificação $id: $e');
+  }
+}
+
+Future<void> mostrarNotificacaoSimples({
+  required int id,
+  required String titulo,
+  required String corpo,
+  String payload = 'validade_alerta',
+}) async {
+  if (!_inicializado) return;
+
+  final androidDetails = AndroidNotificationDetails(
+    'alerta_validade',
+    'Alerta de Validade',
+    channelDescription: 'Notificações de produtos com prazo de validade a expirar',
+    importance: Importance.high,
+    priority: Priority.high,
+    color: const Color(0xFFFF6600),
+    enableVibration: true,
+    playSound: true,
+    icon: '@mipmap/ic_launcher',
+    styleInformation: BigTextStyleInformation(corpo),
+  );
+
+  const iosDetails = DarwinNotificationDetails(
+    presentAlert: true,
+    presentBadge: true,
+    presentSound: true,
+  );
+
+  try {
+    await _notifications.show(
+      id,
+      titulo,
+      corpo,
+      NotificationDetails(android: androidDetails, iOS: iosDetails),
+      payload: payload,
+    );
+    print('✅ Notificação de validade enviada: $titulo');
+  } catch (e) {
+    print('❌ Erro ao enviar notificação de validade: $e');
   }
 }
 

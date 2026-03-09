@@ -19,6 +19,7 @@ import '../widgets/conectividade_indicator.dart';
 import '../services/conectividade_service.dart';
 import 'dart:async';
 import '../services/sync_events_service.dart'; // 🔥 NOVO
+import '../services/validade_alerta_service.dart'; // 🔥 NOVO IMPORT
 
 
 
@@ -190,6 +191,7 @@ Future<List<Produto>> _fetchProdutos() async {
     // Aplicar filtros
     final produtosFiltrados = produtos.where((p) {
       if (p.ativo != 1) return false;
+      if (ValidadeAlertaService.estaExpirado(p.dataExpiracao)) return false;
       
       if (_buscaNome.isNotEmpty && 
           !p.nome.toLowerCase().contains(_buscaNome.toLowerCase())) {
@@ -211,24 +213,10 @@ Future<List<Produto>> _fetchProdutos() async {
     
     // 🔥 NOVO: Ordenar por estoque (produtos com estoque baixo primeiro)
     produtosFiltrados.sort((a, b) {
-      final qtdA = a.quantidadeEstoque ?? 999;
-      final qtdB = b.quantidadeEstoque ?? 999;
-      
-      // Prioridade 1: Esgotados (0)
-      if (qtdA == 0 && qtdB != 0) return -1;
-      if (qtdB == 0 && qtdA != 0) return 1;
-      
-      // Prioridade 2: Críticos (< 10)
-      if (qtdA < 10 && qtdB >= 10) return -1;
-      if (qtdB < 10 && qtdA >= 10) return 1;
-      
-      // Prioridade 3: Baixos (< 20)
-      if (qtdA < 20 && qtdB >= 20) return -1;
-      if (qtdB < 20 && qtdA >= 20) return 1;
-      
-      // Dentro da mesma categoria, ordenar pela quantidade
-      return qtdA.compareTo(qtdB);
-    });
+  final scoreA = _calcularScore(a);
+  final scoreB = _calcularScore(b);
+  return scoreB.compareTo(scoreA); // Maior score primeiro
+});
     
     return produtosFiltrados;
   } catch (e) {
@@ -236,6 +224,18 @@ Future<List<Produto>> _fetchProdutos() async {
     return [];
   }
 }
+
+int _calcularScore(Produto p) {
+  final qtd = p.quantidadeEstoque ?? 999;
+  int pesoEstoque = 0;
+  if (qtd == 0) pesoEstoque = 1000;
+  else if (qtd < 10) pesoEstoque = 500;
+  else if (qtd < 20) pesoEstoque = 200;
+
+  final pesoValidade = ValidadeAlertaService.scoreValidade(p.dataExpiracao);
+  return pesoEstoque + pesoValidade;
+}
+
   Future<void> _fetchCategorias() async {
     try {
       final categorias = await _dbService.readAllCategoriasSimples();

@@ -196,7 +196,7 @@ Future<List<ItemPedido>> _loadItensPedido(int idPedido) async {
         orElse: () => {'tipo_pagamento': 'Desconhecido'},
       )['tipo_pagamento'] as String;
 
-      final file = await PdfService.instance.gerarFatura(
+      final file = await PdfService.instance.gerarComprovativo(
         pedido: pedido,
         tipoPagamento: tipoPagamento,
         nomeCliente: pedido.nomeUsuario,

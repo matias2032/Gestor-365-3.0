@@ -186,7 +186,8 @@ if (oldVersion < 9) { // Incrementar versão atual
         quantidade_estoque INTEGER,
         preco_promocional REAL,
         ativo INTEGER DEFAULT 1,
-        data_cadastro TEXT DEFAULT (datetime('now', 'utc'))
+        data_cadastro TEXT DEFAULT (datetime('now', 'utc')),
+        data_expiracao TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
     
       )
     ''');

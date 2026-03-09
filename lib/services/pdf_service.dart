@@ -1,4 +1,5 @@
-// lib/services/pdf_service.dart (CORRIGIDO PARA ANDROID)
+// lib/services/pdf_service.dart
+// Suporte a A4, térmica 58mm e 80mm com layout adaptativo
 
 import 'dart:io';
 import 'package:pdf/pdf.dart';
@@ -8,66 +9,195 @@ import 'package:open_file/open_file.dart';
 import '../models/pedido.dart';
 import 'package:intl/intl.dart';
 
+/// Formatos de papel suportados
+enum PaperFormat { a4, thermal58mm, thermal80mm }
+
 class PdfService {
   static final PdfService instance = PdfService._internal();
   factory PdfService() => instance;
   PdfService._internal();
 
-  /// Gera uma fatura em PDF para o pedido
-  Future<File> gerarFatura({
+  // ─────────────────────────────────────────────
+  // Mapeamento de PaperFormat → PdfPageFormat
+  // ─────────────────────────────────────────────
+  static PdfPageFormat _pageFormatFor(PaperFormat format) {
+    switch (format) {
+      case PaperFormat.thermal58mm:
+        // 58 mm de largura; altura "infinita" (rolo contínuo)
+        return PdfPageFormat(
+          58 * PdfPageFormat.mm,
+          double.infinity,
+        );
+      case PaperFormat.thermal80mm:
+        return PdfPageFormat(
+          80 * PdfPageFormat.mm,
+          double.infinity,
+        );
+      case PaperFormat.a4:
+        return PdfPageFormat.a4;
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // Ponto de entrada principal
+  // ─────────────────────────────────────────────
+  Future<File> gerarComprovativo({
     required Pedido pedido,
     required String tipoPagamento,
     String? nomeCliente,
     String? telefoneCliente,
+    PaperFormat paperFormat = PaperFormat.a4,
   }) async {
     final pdf = pw.Document();
-    
+    final pageFormat = _pageFormatFor(paperFormat);
+
+    // Detecta papel estreito (térmica)
+    final bool isSmall = pageFormat.width < 300; // < ~107pt ≈ < ~85 mm em pts
+
+    final double margin = isSmall ? 10 : 40;
+    final double baseFontSize = isSmall ? 9 : 12;
+
     final dataFormatada = DateFormat('dd/MM/yyyy HH:mm').format(
       DateTime.parse(pedido.dataFinalizacao ?? pedido.dataPedido),
     );
 
     pdf.addPage(
       pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
+        pageFormat: pageFormat,
+        margin: pw.EdgeInsets.all(margin),
         build: (context) {
           return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            crossAxisAlignment: isSmall
+                ? pw.CrossAxisAlignment.center
+                : pw.CrossAxisAlignment.start,
             children: [
-              _buildHeader(pedido, dataFormatada),
-              pw.SizedBox(height: 24),
-              
-              if (nomeCliente != null || telefoneCliente != null)
-                _buildClientInfo(nomeCliente, telefoneCliente),
-              
-              pw.SizedBox(height: 24),
-              
-              _buildItemsTable(pedido),
-              
-              pw.SizedBox(height: 24),
-              
-              _buildPaymentSummary(pedido, tipoPagamento),
-              
-              pw.Spacer(),
-              
-              _buildFooter(),
+              // ── Cabeçalho ──────────────────────────────
+              _buildHeader(
+                pedido: pedido,
+                dataFormatada: dataFormatada,
+                isSmall: isSmall,
+                baseFontSize: baseFontSize,
+              ),
+
+              pw.SizedBox(height: isSmall ? 6 : 16),
+              _divider(isSmall),
+              pw.SizedBox(height: isSmall ? 4 : 12),
+
+              // ── Dados do cliente (opcional) ────────────
+              if (nomeCliente != null || telefoneCliente != null) ...[
+                _buildClientInfo(
+                  nome: nomeCliente,
+                  telefone: telefoneCliente,
+                  isSmall: isSmall,
+                  baseFontSize: baseFontSize,
+                ),
+                pw.SizedBox(height: isSmall ? 4 : 12),
+                _divider(isSmall),
+                pw.SizedBox(height: isSmall ? 4 : 12),
+              ],
+
+              // ── Itens ──────────────────────────────────
+              _buildItemsList(
+                pedido: pedido,
+                isSmall: isSmall,
+                baseFontSize: baseFontSize,
+              ),
+
+              pw.SizedBox(height: isSmall ? 4 : 12),
+              _divider(isSmall),
+              pw.SizedBox(height: isSmall ? 4 : 12),
+
+              // ── Resumo de pagamento ────────────────────
+              _buildPaymentSummary(
+                pedido: pedido,
+                tipoPagamento: tipoPagamento,
+                isSmall: isSmall,
+                baseFontSize: baseFontSize,
+              ),
+
+              pw.SizedBox(height: isSmall ? 4 : 12),
+              _divider(isSmall),
+              pw.SizedBox(height: isSmall ? 4 : 8),
+
+              // ── Rodapé ────────────────────────────────
+              _buildFooter(
+                isSmall: isSmall,
+                baseFontSize: baseFontSize,
+              ),
             ],
           );
         },
       ),
     );
 
-    return await _savePdf(pdf, pedido.id!);
+    return _savePdf(pdf, pedido.id!);
   }
 
-  pw.Widget _buildHeader(Pedido pedido, String dataFormatada) {
-    return pw.Container(
-      decoration: pw.BoxDecoration(
-        border: pw.Border(
-          bottom: pw.BorderSide(
-            color: PdfColors.orange,
-            width: 3,
+  // ─────────────────────────────────────────────
+  // Divisor adaptativo (linha ou traços)
+  // ─────────────────────────────────────────────
+  pw.Widget _divider(bool isSmall) {
+    if (isSmall) {
+      return pw.Text(
+        '-' * 32,
+        style: const pw.TextStyle(fontSize: 7),
+        textAlign: pw.TextAlign.center,
+      );
+    }
+    return pw.Divider(color: PdfColors.grey400, thickness: 1);
+  }
+
+  // ─────────────────────────────────────────────
+  // Cabeçalho
+  // ─────────────────────────────────────────────
+  pw.Widget _buildHeader({
+    required Pedido pedido,
+    required String dataFormatada,
+    required bool isSmall,
+    required double baseFontSize,
+  }) {
+    if (isSmall) {
+      // Layout centralizado para térmica
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Text(
+            'BAR DIGITAL',
+            style: pw.TextStyle(
+              fontSize: baseFontSize + 4,
+              fontWeight: pw.FontWeight.bold,
+            ),
+            textAlign: pw.TextAlign.center,
           ),
+          pw.SizedBox(height: 2),
+          pw.Text(
+            'COMPROVATIVO DE VENDA',
+            style: pw.TextStyle(
+              fontSize: baseFontSize,
+              fontWeight: pw.FontWeight.bold,
+            ),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.SizedBox(height: 2),
+          pw.Text(
+            'Pedido #${pedido.id}',
+            style: pw.TextStyle(fontSize: baseFontSize),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.Text(
+            dataFormatada,
+            style: pw.TextStyle(fontSize: baseFontSize - 1),
+            textAlign: pw.TextAlign.center,
+          ),
+        ],
+      );
+    }
+
+    // Layout A4 — duas colunas
+    return pw.Container(
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          bottom: pw.BorderSide(color: PdfColors.deepOrange, width: 3),
         ),
       ),
       padding: const pw.EdgeInsets.only(bottom: 16),
@@ -88,10 +218,7 @@ class PdfService {
               pw.SizedBox(height: 4),
               pw.Text(
                 'Sistema de Gestão de Pedidos',
-                style: const pw.TextStyle(
-                  fontSize: 12,
-                  color: PdfColors.grey700,
-                ),
+                style: pw.TextStyle(fontSize: 12, color: PdfColors.grey700),
               ),
             ],
           ),
@@ -99,9 +226,9 @@ class PdfService {
             crossAxisAlignment: pw.CrossAxisAlignment.end,
             children: [
               pw.Text(
-                'FATURA',
+                'COMPROVATIVO DE VENDA',
                 style: pw.TextStyle(
-                  fontSize: 24,
+                  fontSize: 20,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
@@ -116,10 +243,7 @@ class PdfService {
               ),
               pw.Text(
                 dataFormatada,
-                style: const pw.TextStyle(
-                  fontSize: 10,
-                  color: PdfColors.grey700,
-                ),
+                style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
               ),
             ],
           ),
@@ -128,7 +252,43 @@ class PdfService {
     );
   }
 
-  pw.Widget _buildClientInfo(String? nome, String? telefone) {
+  // ─────────────────────────────────────────────
+  // Informações do cliente
+  // ─────────────────────────────────────────────
+  pw.Widget _buildClientInfo({
+    String? nome,
+    String? telefone,
+    required bool isSmall,
+    required double baseFontSize,
+  }) {
+    if (isSmall) {
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Text(
+            'CLIENTE',
+            style: pw.TextStyle(
+              fontSize: baseFontSize,
+              fontWeight: pw.FontWeight.bold,
+            ),
+            textAlign: pw.TextAlign.center,
+          ),
+          if (nome != null)
+            pw.Text(
+              nome,
+              style: pw.TextStyle(fontSize: baseFontSize),
+              textAlign: pw.TextAlign.center,
+            ),
+          if (telefone != null)
+            pw.Text(
+              telefone,
+              style: pw.TextStyle(fontSize: baseFontSize),
+              textAlign: pw.TextAlign.center,
+            ),
+        ],
+      );
+    }
+
     return pw.Container(
       padding: const pw.EdgeInsets.all(12),
       decoration: pw.BoxDecoration(
@@ -148,194 +308,240 @@ class PdfService {
           ),
           pw.SizedBox(height: 8),
           if (nome != null)
-            pw.Text(
-              'Nome: $nome',
-              style: const pw.TextStyle(fontSize: 11),
-            ),
+            pw.Text('Nome: $nome', style: const pw.TextStyle(fontSize: 11)),
           if (telefone != null)
-            pw.Text(
-              'Telefone: $telefone',
-              style: const pw.TextStyle(fontSize: 11),
-            ),
+            pw.Text('Telefone: $telefone',
+                style: const pw.TextStyle(fontSize: 11)),
         ],
       ),
     );
   }
 
-  pw.Widget _buildItemsTable(Pedido pedido) {
+  // ─────────────────────────────────────────────
+  // Lista de itens (substitui pw.Table)
+  // ─────────────────────────────────────────────
+  pw.Widget _buildItemsList({
+    required Pedido pedido,
+    required bool isSmall,
+    required double baseFontSize,
+  }) {
     final itens = pedido.itens ?? [];
 
-    return pw.Table(
-      border: pw.TableBorder.all(color: PdfColors.grey400),
-      children: [
-        pw.TableRow(
-          decoration: const pw.BoxDecoration(
-            color: PdfColors.teal,
-          ),
-          children: [
-            _buildTableCell('PRODUTO', isHeader: true),
-            _buildTableCell('QTD', isHeader: true, alignment: pw.Alignment.center),
-            _buildTableCell('PREÇO UN.', isHeader: true, alignment: pw.Alignment.centerRight),
-            _buildTableCell('SUBTOTAL', isHeader: true, alignment: pw.Alignment.centerRight),
-          ],
-        ),
-        
-        ...itens.map((item) {
-          return pw.TableRow(
-            children: [
-              _buildTableCell(item.produto?.nome ?? 'Produto'),
-              _buildTableCell(
-                item.quantidade.toString(),
-                alignment: pw.Alignment.center,
-              ),
-              _buildTableCell(
-                'MZN ${item.precoUnitario.toStringAsFixed(2)}',
-                alignment: pw.Alignment.centerRight,
-              ),
-              _buildTableCell(
-                'MZN ${item.subtotal.toStringAsFixed(2)}',
-                alignment: pw.Alignment.centerRight,
-              ),
-            ],
-          );
-        }).toList(),
-      ],
-    );
-  }
-
-  pw.Widget _buildTableCell(
-    String text, {
-    bool isHeader = false,
-    pw.Alignment alignment = pw.Alignment.centerLeft,
-  }) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.all(8),
-      alignment: alignment,
-      child: pw.Text(
-        text,
+    // Cabeçalho da secção
+    final List<pw.Widget> widgets = [
+      pw.Text(
+        'ITENS',
         style: pw.TextStyle(
-          fontSize: isHeader ? 11 : 10,
-          fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
-          color: isHeader ? PdfColors.white : PdfColors.black,
+          fontSize: baseFontSize + (isSmall ? 0 : 2),
+          fontWeight: pw.FontWeight.bold,
+          color: isSmall ? PdfColors.black : PdfColors.teal,
         ),
+        textAlign: isSmall ? pw.TextAlign.center : pw.TextAlign.left,
       ),
+      pw.SizedBox(height: isSmall ? 4 : 8),
+    ];
+
+    for (final item in itens) {
+      final nomeProduto = item.produto?.nome ?? 'Produto';
+      final subtotalStr =
+          'MZN ${item.subtotal.toStringAsFixed(2)}';
+
+      if (isSmall) {
+        // Nome em negrito, detalhes logo abaixo
+        widgets.add(
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                nomeProduto,
+                style: pw.TextStyle(
+                  fontSize: baseFontSize,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    '${item.quantidade}x  MZN ${item.precoUnitario.toStringAsFixed(2)}',
+                    style: pw.TextStyle(fontSize: baseFontSize - 1),
+                  ),
+                  pw.Text(
+                    subtotalStr,
+                    style: pw.TextStyle(
+                      fontSize: baseFontSize - 1,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 3),
+            ],
+          ),
+        );
+      } else {
+        // Layout A4 — nome em linha, detalhes em Row abaixo
+        widgets.add(
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 6),
+            decoration: const pw.BoxDecoration(
+              border: pw.Border(
+                bottom: pw.BorderSide(color: PdfColors.grey300),
+              ),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  nomeProduto,
+                  style: pw.TextStyle(
+                    fontSize: baseFontSize,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      'Qtd: ${item.quantidade}',
+                      style: pw.TextStyle(
+                          fontSize: baseFontSize - 1,
+                          color: PdfColors.grey700),
+                    ),
+                    pw.Text(
+                      'Un.: MZN ${item.precoUnitario.toStringAsFixed(2)}',
+                      style: pw.TextStyle(
+                          fontSize: baseFontSize - 1,
+                          color: PdfColors.grey700),
+                    ),
+                    pw.Text(
+                      'Sub: MZN ${item.subtotal.toStringAsFixed(2)}',
+                      style: pw.TextStyle(
+                        fontSize: baseFontSize - 1,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    return pw.Column(
+      crossAxisAlignment: isSmall
+          ? pw.CrossAxisAlignment.stretch
+          : pw.CrossAxisAlignment.start,
+      children: widgets,
     );
   }
 
-  pw.Widget _buildPaymentSummary(Pedido pedido, String tipoPagamento) {
-    final isDinheiroVivo = tipoPagamento.toLowerCase().contains('dinheiro');
-    
+  // ─────────────────────────────────────────────
+  // Resumo de pagamento
+  // ─────────────────────────────────────────────
+  pw.Widget _buildPaymentSummary({
+    required Pedido pedido,
+    required String tipoPagamento,
+    required bool isSmall,
+    required double baseFontSize,
+  }) {
+    final isDinheiro = tipoPagamento.toLowerCase().contains('dinheiro');
+    final totalStr = 'MZN ${pedido.total.toStringAsFixed(2)}';
+    final valorPagoStr =
+        'MZN ${(pedido.valorPagoManual ?? 0.0).toStringAsFixed(2)}';
+    final trocoStr = 'MZN ${(pedido.troco ?? 0.0).toStringAsFixed(2)}';
+
+    pw.Widget paymentRow(String label, String value,
+        {bool bold = false, PdfColor? color}) {
+      return pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label,
+              style: pw.TextStyle(
+                  fontSize: baseFontSize,
+                  fontWeight:
+                      bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+          pw.Text(value,
+              style: pw.TextStyle(
+                fontSize: baseFontSize,
+                fontWeight: pw.FontWeight.bold,
+                color: color,
+              )),
+        ],
+      );
+    }
+
+    final rows = <pw.Widget>[
+      paymentRow(
+        'TOTAL',
+        totalStr,
+        bold: true,
+        color: isSmall ? PdfColors.black : PdfColors.teal,
+      ),
+      pw.SizedBox(height: isSmall ? 3 : 8),
+      paymentRow('Pagamento:', tipoPagamento),
+      if (isDinheiro) ...[
+        pw.SizedBox(height: isSmall ? 2 : 6),
+        paymentRow('Valor Pago:', valorPagoStr),
+        pw.SizedBox(height: isSmall ? 2 : 6),
+        paymentRow('Troco:', trocoStr, color: PdfColors.blue),
+      ],
+    ];
+
+    if (isSmall) {
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: rows,
+      );
+    }
+
     return pw.Container(
       padding: const pw.EdgeInsets.all(16),
       decoration: pw.BoxDecoration(
         border: pw.Border.all(color: PdfColors.grey400),
         borderRadius: pw.BorderRadius.circular(4),
       ),
-      child: pw.Column(
-        children: [
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text(
-                'TOTAL',
-                style: pw.TextStyle(
-                  fontSize: 16,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.Text(
-                'MZN ${pedido.total.toStringAsFixed(2)}',
-                style: pw.TextStyle(
-                  fontSize: 20,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.teal,
-                ),
-              ),
-            ],
-          ),
-          
-          pw.SizedBox(height: 12),
-          pw.Divider(color: PdfColors.grey400),
-          pw.SizedBox(height: 12),
-          
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text(
-                'Método de Pagamento:',
-                style: const pw.TextStyle(fontSize: 11),
-              ),
-              pw.Text(
-                tipoPagamento,
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          
-          if (isDinheiroVivo) ...[
-            pw.SizedBox(height: 8),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text(
-                  'Valor Pago:',
-                  style: const pw.TextStyle(fontSize: 11),
-                ),
-                pw.Text(
-                  'MZN ${(pedido.valorPagoManual ?? 0.0).toStringAsFixed(2)}',
-                  style: pw.TextStyle(
-                    fontSize: 11,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 8),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text(
-                  'Troco:',
-                  style: const pw.TextStyle(fontSize: 11),
-                ),
-                pw.Text(
-                  'MZN ${(pedido.troco ?? 0.0).toStringAsFixed(2)}',
-                  style: pw.TextStyle(
-                    fontSize: 11,
-                    fontWeight: pw.FontWeight.bold,
-                    color: PdfColors.blue,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
+      child: pw.Column(children: rows),
     );
   }
 
-  pw.Widget _buildFooter() {
+  // ─────────────────────────────────────────────
+  // Rodapé
+  // ─────────────────────────────────────────────
+  pw.Widget _buildFooter({
+    required bool isSmall,
+    required double baseFontSize,
+  }) {
     return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
       children: [
-        pw.Divider(color: PdfColors.grey400),
-        pw.SizedBox(height: 8),
         pw.Text(
-          'Obrigado pela sua preferência!',
+          'Documento para controlo interno.',
           style: pw.TextStyle(
-            fontSize: 12,
-            fontWeight: pw.FontWeight.bold,
-            color: PdfColors.teal,
+            fontSize: baseFontSize - (isSmall ? 1 : 2),
+            fontStyle: pw.FontStyle.italic,
+            color: PdfColors.grey700,
           ),
           textAlign: pw.TextAlign.center,
         ),
-        pw.SizedBox(height: 4),
+        pw.SizedBox(height: isSmall ? 3 : 6),
+        pw.Text(
+          'Obrigado pela sua preferência!',
+          style: pw.TextStyle(
+            fontSize: baseFontSize + (isSmall ? 0 : 2),
+            fontWeight: pw.FontWeight.bold,
+            color: isSmall ? PdfColors.black : PdfColors.teal,
+          ),
+          textAlign: pw.TextAlign.center,
+        ),
+        pw.SizedBox(height: isSmall ? 2 : 4),
         pw.Text(
           'Bar Digital © ${DateTime.now().year}',
-          style: const pw.TextStyle(
-            fontSize: 9,
+          style: pw.TextStyle(
+            fontSize: baseFontSize - 1,
             color: PdfColors.grey600,
           ),
           textAlign: pw.TextAlign.center,
@@ -344,46 +550,42 @@ class PdfService {
     );
   }
 
-  /// 🔥 CORRIGIDO: Salvar em local mais acessível no Android
+  // ─────────────────────────────────────────────
+  // Salvar PDF no Android / iOS
+  // ─────────────────────────────────────────────
   Future<File> _savePdf(pw.Document pdf, int pedidoId) async {
     Directory directory;
-    
-    // 🔥 CORREÇÃO: Tentar diferentes diretórios dependendo da plataforma
+
     if (Platform.isAndroid) {
-      // Tenta usar Download ou Documents públicos
       try {
         directory = Directory('/storage/emulated/0/Download/');
         if (!await directory.exists()) {
-          directory = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+          directory =
+              await getExternalStorageDirectory() ??
+              await getApplicationDocumentsDirectory();
         }
-      } catch (e) {
+      } catch (_) {
         directory = await getApplicationDocumentsDirectory();
       }
     } else {
-      // iOS e outras plataformas
       directory = await getApplicationDocumentsDirectory();
     }
-    
+
     final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-    final fileName = 'Fatura_Pedido_${pedidoId}_$timestamp.pdf';
+    final fileName = 'Comprovativo_${pedidoId}_$timestamp.pdf';
     final file = File('${directory.path}/$fileName');
-    
+
     await file.writeAsBytes(await pdf.save());
     return file;
   }
 
-  /// 🔥 CORRIGIDO: Método mais robusto para abrir PDF
+  // ─────────────────────────────────────────────
+  // Abrir PDF
+  // ─────────────────────────────────────────────
   Future<void> abrirPdf(File file) async {
-    try {
-      final result = await OpenFile.open(file.path);
-      
-      // Verificar resultado
-      if (result.type != ResultType.done) {
-        throw Exception(result.message);
-      }
-    } catch (e) {
-      // Lançar exceção para ser tratada na UI
-      throw Exception('Não foi possível abrir o PDF: $e');
+    final result = await OpenFile.open(file.path);
+    if (result.type != ResultType.done) {
+      throw Exception('Não foi possível abrir o PDF: ${result.message}');
     }
   }
 }

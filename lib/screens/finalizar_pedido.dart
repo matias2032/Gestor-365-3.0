@@ -128,9 +128,9 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
         _pedidoAtivoService.limparPedidoAtivo();
       }
 
-      // if (mounted) {
-      //   await _mostrarDialogoFatura();
-      // }
+      if (mounted) {
+        await _mostrarDialogoFatura();
+      }
 
 
 // 🔥 NOVO: Redirecionar diretamente para o menu
@@ -241,7 +241,7 @@ if (mounted) {
         (t) => t['idtipo_pagamento'] == _tipoPagamentoSelecionado,
       )['tipo_pagamento'] as String;
 
-      final pdfFile = await _pdfService.gerarFatura(
+      final pdfFile = await _pdfService.gerarComprovativo(
         pedido: pedidoAtualizado,
         tipoPagamento: tipoPagamento,
         nomeCliente: _nomeClienteController.text.isEmpty 
@@ -250,6 +250,8 @@ if (mounted) {
         telefoneCliente: _telefoneClienteController.text.isEmpty 
             ? null 
             : _telefoneClienteController.text,
+            paperFormat: PaperFormat.thermal80mm,
+
       );
 
       if (mounted) Navigator.of(context).pop();
@@ -395,11 +397,23 @@ if (mounted) {
   }
 
   void _voltarParaInicio() {
-    // if (mounted) {
-    //   Navigator.of(context).popUntil((route) => route.isFirst);
-    // }
+    if (mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
   }
 
+bool get _podeFinalizar {
+  if (_isFinalizando) return false;
+  if (_tipoPagamentoSelecionado == null) return false;
+  
+  // Se for dinheiro, valida se o valor inserido é suficiente
+  if (_mostrarCampoValor) {
+    final valorRecebido = double.tryParse(_valorRecebidoController.text) ?? 0.0;
+    return valorRecebido >= (_pedido?.total ?? 0.0);
+  }
+  
+  return true; // Para outros métodos, o botão fica ativo após selecionar
+}
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -530,20 +544,47 @@ if (mounted) {
               onChanged: _onTipoPagamentoChanged,
             ),
 
-            if (_mostrarCampoValor) ...[
-              const SizedBox(height: 20),
-              TextField(
-                controller: _valorRecebidoController,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
-                decoration: const InputDecoration(
-                  labelText: 'Valor Recebido',
-                  prefixText: 'MZN ',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (_) => _calcularTroco(),
+if (_mostrarCampoValor) ...[
+  const SizedBox(height: 20),
+  TextField(
+    controller: _valorRecebidoController,
+    keyboardType: TextInputType.number,
+    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+    decoration: const InputDecoration(
+      labelText: 'Valor Recebido',
+      prefixText: 'MZN ',
+      border: OutlineInputBorder(),
+    ),
+    onChanged: (_) => _calcularTroco(),
+  ),
+  
+  // 🔥 NOVO: Alerta visual amigável
+  Builder(
+    builder: (context) {
+      final valorRecebido = double.tryParse(_valorRecebidoController.text) ?? 0.0;
+      final insuficiente = valorRecebido > 0 && valorRecebido < (_pedido?.total ?? 0.0);
+      
+      return AnimatedOpacity(
+        duration: const Duration(milliseconds: 300),
+        opacity: insuficiente ? 1.0 : 0.0,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 8.0, left: 4.0),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, size: 16, color: Colors.orange.shade700),
+              const SizedBox(width: 8),
+              Text(
+                'O valor inserido ainda é menor que o total.',
+                style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
               ),
-              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      );
+    },
+  ),
+
+  const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -569,7 +610,7 @@ if (mounted) {
               width: double.infinity,
               height: 56,
               child: ElevatedButton.icon(
-                onPressed: _isFinalizando ? null : _finalizarPedido,
+                onPressed: _podeFinalizar ? _finalizarPedido : null,
                 icon: _isFinalizando
                     ? const SizedBox(
                         width: 20,

@@ -519,7 +519,7 @@ class PdfService {
       crossAxisAlignment: pw.CrossAxisAlignment.center,
       children: [
         pw.Text(
-          'Documento para controlo interno.',
+          'Documento somente para controlo interno.',
           style: pw.TextStyle(
             fontSize: baseFontSize - (isSmall ? 1 : 2),
             fontStyle: pw.FontStyle.italic,
@@ -553,39 +553,79 @@ class PdfService {
   // ─────────────────────────────────────────────
   // Salvar PDF no Android / iOS
   // ─────────────────────────────────────────────
-  Future<File> _savePdf(pw.Document pdf, int pedidoId) async {
-    Directory directory;
+ Future<File> _savePdf(pw.Document pdf, int pedidoId) async {
+  final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+  final fileName = 'Comprovativo_${pedidoId}_$timestamp.pdf';
 
+  Directory directory;
+
+  try {
     if (Platform.isAndroid) {
+      Directory? dir;
+
+      // Tentativa 1: pasta Downloads pública (funciona em dispositivos reais)
       try {
-        directory = Directory('/storage/emulated/0/Download/');
-        if (!await directory.exists()) {
-          directory =
-              await getExternalStorageDirectory() ??
-              await getApplicationDocumentsDirectory();
+        final downloads = Directory('/storage/emulated/0/Download/');
+        if (await downloads.exists()) {
+          final testFile = File('${downloads.path}/.write_test');
+          await testFile.writeAsString('test');
+          await testFile.delete();
+          dir = downloads;
         }
-      } catch (_) {
-        directory = await getApplicationDocumentsDirectory();
+      } catch (_) {}
+
+      // Tentativa 2: directório externo da app (funciona em emuladores)
+      if (dir == null) {
+        try {
+          final extDir = await getExternalStorageDirectory();
+          if (extDir != null) {
+            dir = Directory('${extDir.path}/Downloads');
+            if (!await dir.exists()) {
+              await dir.create(recursive: true);
+            }
+          }
+        } catch (_) {}
       }
+
+      // Fallback: documentos internos da app
+      directory = dir ?? await getApplicationDocumentsDirectory();
+
+    } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final downloads = await getDownloadsDirectory();
+      directory = downloads ?? await getApplicationDocumentsDirectory();
     } else {
+      // iOS e outros
       directory = await getApplicationDocumentsDirectory();
     }
-
-    final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-    final fileName = 'Comprovativo_${pedidoId}_$timestamp.pdf';
-    final file = File('${directory.path}/$fileName');
-
-    await file.writeAsBytes(await pdf.save());
-    return file;
+  } catch (_) {
+    directory = await getApplicationDocumentsDirectory();
   }
 
+  final file = File('${directory.path}/$fileName');
+  await file.writeAsBytes(await pdf.save());
+  print('📁 PDF guardado em: ${file.path}');
+  return file;
+}
   // ─────────────────────────────────────────────
   // Abrir PDF
   // ─────────────────────────────────────────────
-  Future<void> abrirPdf(File file) async {
-    final result = await OpenFile.open(file.path);
-    if (result.type != ResultType.done) {
-      throw Exception('Não foi possível abrir o PDF: ${result.message}');
-    }
+Future<void> abrirPdf(File file) async {
+  final result = await OpenFile.open(file.path);
+  
+  switch (result.type) {
+    case ResultType.done:
+      return;
+    case ResultType.noAppToOpen:
+      throw Exception(
+        'Nenhuma app de leitura de PDF encontrada.\n'
+        'O ficheiro foi guardado em:\n${file.path}',
+      );
+    case ResultType.fileNotFound:
+      throw Exception('Ficheiro não encontrado: ${file.path}');
+    case ResultType.permissionDenied:
+      throw Exception('Permissão negada ao abrir o ficheiro.');
+    case ResultType.error:
+      throw Exception('Erro ao abrir o PDF: ${result.message}');
   }
+}
 }

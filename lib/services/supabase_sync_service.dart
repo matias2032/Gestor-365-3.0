@@ -390,7 +390,10 @@ Future<void> _syncProdutoFromSupabase(Map<String, dynamic> data) async {
           : null,
       quantidadeEstoque: data['quantidade_estoque'] as int? ?? 0,
       ativo: (data['ativo'] as int?) ?? 1,
-      dataCadastro: (data['data_cadastro'] as String?) ?? DateTime.now().toIso8601String(),
+     dataCadastro: (data['data_cadastro'] as String?) ?? DateTime.now().toIso8601String(),
+dataExpiracao: data['data_expiracao'] != null
+    ? DateTime.parse(data['data_expiracao'].toString()).toIso8601String().split('T').first
+    : null,
     );
 
     // 2. Buscar categorias associadas
@@ -897,7 +900,9 @@ Future<int> createProduto(
           'quantidade_estoque': produto.quantidadeEstoque ?? 0,
           'ativo': produto.ativo,
           'data_cadastro': produto.dataCadastro ?? DateTime.now().toIso8601String(),
-          'data_expiracao': produto.dataExpiracao,
+          'data_expiracao': produto.dataExpiracao != null
+    ? '${produto.dataExpiracao}T00:00:00+02:00'
+    : null,
           'device_id': _deviceId,
         }).select().single();
 
@@ -1004,7 +1009,9 @@ Future<int> updateProduto(
         'preco_promocional': produto.precoPromocional,
         'quantidade_estoque': produto.quantidadeEstoque,
         'ativo': produto.ativo,
-        'data_expiracao': produto.dataExpiracao,
+        'data_expiracao': produto.dataExpiracao != null
+    ? '${produto.dataExpiracao}T00:00:00+02:00'
+    : null,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
         'device_id': _deviceId,
       }).eq('id_produto', produto.id!);
@@ -2368,7 +2375,9 @@ Future<void> validarFilaOffline() async {
       'quantidade_estoque': produto.quantidadeEstoque ?? 0,
       'ativo': produto.ativo,
       'data_cadastro': produto.dataCadastro ?? DateTime.now().toIso8601String(),
-      'data_expiracao': produto.dataExpiracao,
+      'data_expiracao': produto.dataExpiracao != null
+    ? '${produto.dataExpiracao}T00:00:00+02:00'
+    : null,
       'device_id': _deviceId,
     }).select().single();
 
@@ -2459,7 +2468,9 @@ Future<void> validarFilaOffline() async {
       'preco_promocional': produto.precoPromocional,
       'quantidade_estoque': produto.quantidadeEstoque,
       'ativo': produto.ativo,
-      'data_expiracao': produto.dataExpiracao,
+      'data_expiracao': produto.dataExpiracao != null
+    ? '${produto.dataExpiracao}T00:00:00+02:00'
+    : null,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
       'device_id': _deviceId,
     }).eq('id_produto', produto.id!);

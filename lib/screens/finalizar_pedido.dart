@@ -6,8 +6,8 @@ import '../services/pdf_service.dart';
 import '../services/pedido_ativo_service.dart'; // 🔥 NOVO IMPORT
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:io';
 import '../services/supabase_sync_service.dart';
+import '../services/impressora_service.dart';
 
 class FinalizarPedidoScreen extends StatefulWidget {
   final int pedidoId;
@@ -94,313 +94,277 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
   }
 
   Future<void> _finalizarPedido() async {
-    if (_tipoPagamentoSelecionado == null) {
+  if (_tipoPagamentoSelecionado == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Selecione o método de pagamento')),
+    );
+    return;
+  }
+
+  if (_mostrarCampoValor) {
+    final valorRecebido = double.tryParse(_valorRecebidoController.text) ?? 0.0;
+    if (valorRecebido < _pedido!.total) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecione o método de pagamento')),
+        const SnackBar(content: Text('Valor recebido insuficiente')),
       );
       return;
     }
+  }
 
-    if (_mostrarCampoValor) {
-      final valorRecebido = double.tryParse(_valorRecebidoController.text) ?? 0.0;
-      if (valorRecebido < _pedido!.total) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Valor recebido insuficiente')),
-        );
-        return;
-      }
+  setState(() => _isFinalizando = true);
+
+  try {
+    await _syncService.finalizarPedido(
+      widget.pedidoId,
+      _tipoPagamentoSelecionado!,
+      valorPago: double.tryParse(_valorRecebidoController.text),
+      troco: _troco,
+    );
+
+    if (_pedidoAtivoService.pedidoAtivoId == widget.pedidoId) {
+      _pedidoAtivoService.limparPedidoAtivo();
     }
 
-    setState(() => _isFinalizando = true);
-
-    try {
-      await _syncService.finalizarPedido(
-        widget.pedidoId,
-        _tipoPagamentoSelecionado!,
-        valorPago: double.tryParse(_valorRecebidoController.text),
-        troco: _troco,
+    if (mounted) {
+      await _mostrarDialogoFatura();
+    }
+  } catch (e) {
+    setState(() => _isFinalizando = false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro: $e')),
       );
-   
-
-
-      // 🔥 DESATIVAR PEDIDO AUTOMATICAMENTE APÓS FINALIZAR
-      if (_pedidoAtivoService.pedidoAtivoId == widget.pedidoId) {
-        _pedidoAtivoService.limparPedidoAtivo();
-      }
-
-      if (mounted) {
-        await _mostrarDialogoFatura();
-      }
-
-
-// 🔥 NOVO: Redirecionar diretamente para o menu
-if (mounted) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('✅ Pedido finalizado com sucesso!'),
-      backgroundColor: Colors.green,
-      duration: Duration(seconds: 2),
-    ),
-  );
-  
-  // Redirecionar para o menu
-  Navigator.of(context).pushNamedAndRemoveUntil('/menu', (route) => false);
+    }
+  }
 }
 
-    } catch (e) {
-      setState(() => _isFinalizando = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e')),
-        );
-      }
-    }
-  }
-
   Future<void> _mostrarDialogoFatura() async {
-    final gerarFatura = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.receipt_long, color: Colors.teal, size: 30),
-            const SizedBox(width: 12),
-            const Text('Gerar Fatura?'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Deseja gerar uma fatura em PDF para este pedido?',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'A fatura conterá todos os detalhes do pedido e poderá ser impressa.',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton.icon(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            icon: const Icon(Icons.close),
-            label: const Text('Não'),
-            style: TextButton.styleFrom(foregroundColor: Colors.grey),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            icon: const Icon(Icons.check_circle),
-            label: const Text('Sim, Gerar Fatura'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.white,
-            ),
-          ),
+  final acao = await showDialog<String>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.receipt_long, color: Colors.teal),
+          SizedBox(width: 10),
+          Text('Fatura'),
         ],
       ),
-    );
-
-    if (gerarFatura == true && mounted) {
-      await _gerarFatura();
-    } else {
-      _voltarParaInicio();
-    }
-  }
-
-  Future<void> _gerarFatura() async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Gerando fatura...'),
-              ],
-            ),
+      content: const Text('O que deseja fazer com a fatura?'),
+      actions: [
+        TextButton.icon(
+          onPressed: () => Navigator.of(ctx).pop('pular'),
+          icon: const Icon(Icons.skip_next),
+          label: const Text('Pular'),
+          style: TextButton.styleFrom(foregroundColor: Colors.grey),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.of(ctx).pop('salvar'),
+          icon: const Icon(Icons.save_alt),
+          label: const Text('Salvar PDF'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () => Navigator.of(ctx).pop('imprimir'),
+          icon: const Icon(Icons.print),
+          label: const Text('Imprimir'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.teal,
+            foregroundColor: Colors.white,
           ),
         ),
-      ),
-    );
+      ],
+    ),
+  );
 
-    try {
-      final pedidoAtualizado = await _dbService.readPedidoComDetalhes(widget.pedidoId);
-      
-      if (pedidoAtualizado == null) throw Exception('Pedido não encontrado');
+  if (!mounted) return;
 
-      final tipoPagamento = _tiposPagamento.firstWhere(
-        (t) => t['idtipo_pagamento'] == _tipoPagamentoSelecionado,
-      )['tipo_pagamento'] as String;
+  switch (acao) {
+    case 'imprimir':
+      await _gerarEImprimirFatura();
+      break;
+    case 'salvar':
+      await _gerarESalvarFatura();
+      break;
+    default:
+      _voltarParaInicio();
+  }
+}
 
-      final pdfFile = await _pdfService.gerarComprovativo(
+ Future<void> _gerarEImprimirFatura() async {
+  _mostrarLoading('Preparando impressão...');
+
+  try {
+    final pedidoAtualizado =
+        await _dbService.readPedidoComDetalhes(widget.pedidoId);
+    if (pedidoAtualizado == null) throw Exception('Pedido não encontrado');
+
+    final tipoPagamento = _tiposPagamento.firstWhere(
+      (t) => t['idtipo_pagamento'] == _tipoPagamentoSelecionado,
+    )['tipo_pagamento'] as String;
+
+    if (mounted) Navigator.of(context).pop(); // fecha loading
+
+    // 🔥 Tenta impressora padrão primeiro (silenciosa)
+    final impressoraPadrao =
+        await ImpressoraService.instance.getImpressoraPadrao();
+
+    if (impressoraPadrao != null) {
+      // ✅ Impressão silenciosa — zero diálogos
+      await _pdfService.imprimirSilencioso(
         pedido: pedidoAtualizado,
         tipoPagamento: tipoPagamento,
-        nomeCliente: _nomeClienteController.text.isEmpty 
-            ? null 
+        impressora: impressoraPadrao,
+        nomeCliente: _nomeClienteController.text.isEmpty
+            ? null
             : _nomeClienteController.text,
-        telefoneCliente: _telefoneClienteController.text.isEmpty 
-            ? null 
+        telefoneCliente: _telefoneClienteController.text.isEmpty
+            ? null
             : _telefoneClienteController.text,
-            paperFormat: PaperFormat.thermal80mm,
-
+        paperFormat: PaperFormat.thermal80mm,
+      );
+    } else {
+      // Fallback: diálogo nativo se não houver impressora configurada
+      await _pdfService.imprimirComprovativo(
+        pedido: pedidoAtualizado,
+        tipoPagamento: tipoPagamento,
+        nomeCliente: _nomeClienteController.text.isEmpty
+            ? null
+            : _nomeClienteController.text,
+        telefoneCliente: _telefoneClienteController.text.isEmpty
+            ? null
+            : _telefoneClienteController.text,
+        paperFormat: PaperFormat.thermal80mm,
       );
 
-      if (mounted) Navigator.of(context).pop();
-
-      if (mounted) {
-        await _mostrarDialogoSucesso(pdfFile);
-      }
-    } catch (e) {
-      if (mounted) Navigator.of(context).pop();
-      
+      // Avisa que pode configurar impressora padrão
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao gerar fatura: $e'),
-            backgroundColor: Colors.red,
+            content: const Text('💡 Defina uma impressora padrão nas Definições para impressão automática'),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Configurar',
+              onPressed: () => Navigator.of(context).pushNamed('/configuracoes-impressora'),
+            ),
           ),
         );
-        _voltarParaInicio();
       }
+    }
+  } catch (e) {
+    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao imprimir: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
-  Future<void> _mostrarDialogoSucesso(File pdfFile) async {
-    final acao = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 30),
-            const SizedBox(width: 12),
-            const Text('Fatura Gerada!'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'A fatura foi gerada com sucesso!',
-              style: TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.folder, color: Colors.teal, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      pdfFile.path.split('/').last,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'O PDF foi salvo em: ${pdfFile.parent.path}',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop('fechar'),
-            child: const Text('Fechar'),
+  _voltarParaInicio();
+}
+
+// Helper reutilizável para loading
+void _mostrarLoading(String mensagem) {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => Center(
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(mensagem),
+            ],
           ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.of(ctx).pop('abrir'),
-            icon: const Icon(Icons.open_in_new),
-            label: const Text('Abrir PDF'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
+        ),
       ),
+    ),
+  );
+}
+
+Future<void> _gerarESalvarFatura() async {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(
+      child: Card(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Gerando fatura...'),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  try {
+    final pedidoAtualizado =
+        await _dbService.readPedidoComDetalhes(widget.pedidoId);
+    if (pedidoAtualizado == null) throw Exception('Pedido não encontrado');
+
+    final tipoPagamento = _tiposPagamento.firstWhere(
+      (t) => t['idtipo_pagamento'] == _tipoPagamentoSelecionado,
+    )['tipo_pagamento'] as String;
+
+    final pdfFile = await _pdfService.gerarComprovativo(
+      pedido: pedidoAtualizado,
+      tipoPagamento: tipoPagamento,
+      nomeCliente: _nomeClienteController.text.isEmpty
+          ? null
+          : _nomeClienteController.text,
+      telefoneCliente: _telefoneClienteController.text.isEmpty
+          ? null
+          : _telefoneClienteController.text,
+      paperFormat: PaperFormat.thermal80mm,
     );
 
-    if (acao == 'abrir') {
-      try {
-        // 🔥 CORREÇÃO: Usar método mais robusto para abrir PDF
-        await _pdfService.abrirPdf(pdfFile);
-      } catch (e) {
-        if (mounted) {
-          // 🔥 FALLBACK: Se falhar, mostrar caminho para o usuário
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Atenção'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Não foi possível abrir o PDF automaticamente.'),
-                  const SizedBox(height: 12),
-                  const Text('Arquivo salvo em:', 
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  SelectableText(
-                    pdfFile.path,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Use um gerenciador de arquivos para abrir o PDF.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      }
-    }
+    if (mounted) Navigator.of(context).pop(); // fecha loading
 
-    _voltarParaInicio();
-  }
-
-  void _voltarParaInicio() {
     if (mounted) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('PDF guardado: ${pdfFile.path.split('/').last}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  } catch (e) {
+    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao gerar PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
+
+  _voltarParaInicio();
+}
+
+ void _voltarParaInicio() {
+  if (!mounted) return;
+  // 🔥 Navega para /menu explicitamente, removendo apenas
+  // as rotas acima dele — nunca chega ao login
+  Navigator.of(context).pushNamedAndRemoveUntil(
+    '/menu',
+    (route) => false,
+  );
+}
 
 bool get _podeFinalizar {
   if (_isFinalizando) return false;

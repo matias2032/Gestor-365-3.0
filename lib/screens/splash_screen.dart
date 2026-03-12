@@ -402,7 +402,7 @@ child: Padding(
         ),
       ),
       child: const Text(
-        'Criado por PTM',
+        'Criado por Matias Matavel2',
         style: TextStyle(
           fontSize: 16,
           color: Colors.white,

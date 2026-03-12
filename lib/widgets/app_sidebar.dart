@@ -99,6 +99,7 @@ Future<void> _carregarContadorDoUsuario() async {
         '/movimentos_estoque',
          '/historico_pedidos',
         
+        
       ].contains(route);
     }
 
@@ -195,6 +196,14 @@ if (_temPermissao('/gerenciar_produtos'))
                     icon: Icons.inventory,
                     title: 'Movimentos de Estoque',
                     route: '/movimentos_estoque',
+                  ),
+
+
+                     if (_temPermissao( '/configuracoes_impressora'))
+                  _buildMenuItem(
+                    icon: Icons.print,
+                    title: 'Configurações da Impressora',
+                    route: '/configuracoes_impressora',
                   ),
 
                   //   if (_temPermissao('/corrigir_imagens'))

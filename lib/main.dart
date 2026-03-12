@@ -37,6 +37,7 @@ import 'screens/movimentos_estoque.dart';
 import 'screens/primeira_troca_senha.dart';
 import 'screens/corrigir_imagens_screen.dart';
 import 'services/conectividade_service.dart';
+import 'screens/configuracoes_impressora_screen.dart';
 import 'widgets/conectividade_dialog.dart';
 import 'services/supabase_sync_service.dart';
 import 'package:flutter/foundation.dart'; 
@@ -383,6 +384,13 @@ class _MyAppState extends State<MyApp> {
                 return MaterialPageRoute(
                   builder: (_) => const GerenciarCategoriasScreen(),
                 );
+
+                case '/configuracoes_impressora':
+                return MaterialPageRoute(
+                  builder: (_) => const ConfiguracoesImpressoraScreen(),
+                );
+
+             
               
               case '/cadastrar_categoria':
                 return MaterialPageRoute(

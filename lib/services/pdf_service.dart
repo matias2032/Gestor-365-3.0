@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_file/open_file.dart';
+import 'package:printing/printing.dart';
 import '../models/pedido.dart';
 import 'package:intl/intl.dart';
 
@@ -23,23 +24,99 @@ class PdfService {
   static PdfPageFormat _pageFormatFor(PaperFormat format) {
     switch (format) {
       case PaperFormat.thermal58mm:
-        // 58 mm de largura; altura "infinita" (rolo contínuo)
-        return PdfPageFormat(
-          58 * PdfPageFormat.mm,
-          double.infinity,
-        );
-      case PaperFormat.thermal80mm:
-        return PdfPageFormat(
-          80 * PdfPageFormat.mm,
-          double.infinity,
-        );
+        return PdfPageFormat(58 * PdfPageFormat.mm, double.infinity);
+case PaperFormat.thermal80mm:
+  return PdfPageFormat(
+    80 * PdfPageFormat.mm,
+    300 * PdfPageFormat.mm,  // ← altura fixa 300mm
+    marginAll: 0,
+  );
       case PaperFormat.a4:
         return PdfPageFormat.a4;
     }
   }
 
   // ─────────────────────────────────────────────
-  // Ponto de entrada principal
+  // HELPER CENTRAL: constrói o pw.Document
+  // Usado por gerarComprovativo, imprimirComprovativo
+  // e imprimirSilencioso — fonte única de verdade.
+  // ─────────────────────────────────────────────
+ pw.Document _buildPdfDocument({
+  required Pedido pedido,
+  required String tipoPagamento,
+  required PdfPageFormat pageFormat,
+  String? nomeCliente,
+  String? telefoneCliente,
+}) {
+  final pdf = pw.Document();
+  final bool isSmall = pageFormat.width < 300;
+  final double margin = isSmall ? 10 : 40;
+  final double baseFontSize = isSmall ? 9 : 12;
+
+  final dataFormatada = DateFormat('dd/MM/yyyy HH:mm').format(
+    DateTime.parse(pedido.dataFinalizacao ?? pedido.dataPedido),
+  );
+
+  pdf.addPage(
+  pw.Page(
+    pageTheme: pw.PageTheme(
+      pageFormat: pageFormat,
+      margin: pw.EdgeInsets.all(margin),
+      clip: true,
+    ),
+    build: (context) => pw.Column(
+        crossAxisAlignment: isSmall
+            ? pw.CrossAxisAlignment.center
+            : pw.CrossAxisAlignment.start,
+        children: [
+          _buildHeader(
+            pedido: pedido,
+            dataFormatada: dataFormatada,
+            isSmall: isSmall,
+            baseFontSize: baseFontSize,
+          ),
+          pw.SizedBox(height: isSmall ? 6 : 16),
+          _divider(isSmall),
+          pw.SizedBox(height: isSmall ? 4 : 12),
+          if (nomeCliente != null || telefoneCliente != null) ...[
+            _buildClientInfo(
+              nome: nomeCliente,
+              telefone: telefoneCliente,
+              isSmall: isSmall,
+              baseFontSize: baseFontSize,
+            ),
+            pw.SizedBox(height: isSmall ? 4 : 12),
+            _divider(isSmall),
+            pw.SizedBox(height: isSmall ? 4 : 12),
+          ],
+          _buildItemsList(
+            pedido: pedido,
+            isSmall: isSmall,
+            baseFontSize: baseFontSize,
+          ),
+          pw.SizedBox(height: isSmall ? 4 : 12),
+          _divider(isSmall),
+          pw.SizedBox(height: isSmall ? 4 : 12),
+          _buildPaymentSummary(
+            pedido: pedido,
+            tipoPagamento: tipoPagamento,
+            isSmall: isSmall,
+            baseFontSize: baseFontSize,
+          ),
+          pw.SizedBox(height: isSmall ? 4 : 12),
+          _divider(isSmall),
+          pw.SizedBox(height: isSmall ? 4 : 8),
+          _buildFooter(isSmall: isSmall, baseFontSize: baseFontSize),
+        ],
+      ),
+    ),
+  );
+
+  return pdf;
+}
+
+  // ─────────────────────────────────────────────
+  // Gerar e SALVAR em ficheiro (comportamento original)
   // ─────────────────────────────────────────────
   Future<File> gerarComprovativo({
     required Pedido pedido,
@@ -48,93 +125,91 @@ class PdfService {
     String? telefoneCliente,
     PaperFormat paperFormat = PaperFormat.a4,
   }) async {
-    final pdf = pw.Document();
     final pageFormat = _pageFormatFor(paperFormat);
-
-    // Detecta papel estreito (térmica)
-    final bool isSmall = pageFormat.width < 300; // < ~107pt ≈ < ~85 mm em pts
-
-    final double margin = isSmall ? 10 : 40;
-    final double baseFontSize = isSmall ? 9 : 12;
-
-    final dataFormatada = DateFormat('dd/MM/yyyy HH:mm').format(
-      DateTime.parse(pedido.dataFinalizacao ?? pedido.dataPedido),
+    final pdf = _buildPdfDocument(
+      pedido: pedido,
+      tipoPagamento: tipoPagamento,
+      pageFormat: pageFormat,
+      nomeCliente: nomeCliente,
+      telefoneCliente: telefoneCliente,
     );
-
-    pdf.addPage(
-      pw.Page(
-        pageFormat: pageFormat,
-        margin: pw.EdgeInsets.all(margin),
-        build: (context) {
-          return pw.Column(
-            crossAxisAlignment: isSmall
-                ? pw.CrossAxisAlignment.center
-                : pw.CrossAxisAlignment.start,
-            children: [
-              // ── Cabeçalho ──────────────────────────────
-              _buildHeader(
-                pedido: pedido,
-                dataFormatada: dataFormatada,
-                isSmall: isSmall,
-                baseFontSize: baseFontSize,
-              ),
-
-              pw.SizedBox(height: isSmall ? 6 : 16),
-              _divider(isSmall),
-              pw.SizedBox(height: isSmall ? 4 : 12),
-
-              // ── Dados do cliente (opcional) ────────────
-              if (nomeCliente != null || telefoneCliente != null) ...[
-                _buildClientInfo(
-                  nome: nomeCliente,
-                  telefone: telefoneCliente,
-                  isSmall: isSmall,
-                  baseFontSize: baseFontSize,
-                ),
-                pw.SizedBox(height: isSmall ? 4 : 12),
-                _divider(isSmall),
-                pw.SizedBox(height: isSmall ? 4 : 12),
-              ],
-
-              // ── Itens ──────────────────────────────────
-              _buildItemsList(
-                pedido: pedido,
-                isSmall: isSmall,
-                baseFontSize: baseFontSize,
-              ),
-
-              pw.SizedBox(height: isSmall ? 4 : 12),
-              _divider(isSmall),
-              pw.SizedBox(height: isSmall ? 4 : 12),
-
-              // ── Resumo de pagamento ────────────────────
-              _buildPaymentSummary(
-                pedido: pedido,
-                tipoPagamento: tipoPagamento,
-                isSmall: isSmall,
-                baseFontSize: baseFontSize,
-              ),
-
-              pw.SizedBox(height: isSmall ? 4 : 12),
-              _divider(isSmall),
-              pw.SizedBox(height: isSmall ? 4 : 8),
-
-              // ── Rodapé ────────────────────────────────
-              _buildFooter(
-                isSmall: isSmall,
-                baseFontSize: baseFontSize,
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
     return _savePdf(pdf, pedido.id!);
   }
 
   // ─────────────────────────────────────────────
-  // Divisor adaptativo (linha ou traços)
+  // Imprimir com diálogo nativo (Printing.layoutPdf)
+  // ─────────────────────────────────────────────
+Future<void> imprimirComprovativo({
+  required Pedido pedido,
+  required String tipoPagamento,
+  String? nomeCliente,
+  String? telefoneCliente,
+  PaperFormat paperFormat = PaperFormat.thermal80mm,
+}) async {
+  final pageFormat = _pageFormatFor(paperFormat);
+ 
+  await Printing.layoutPdf(
+    onLayout: (PdfPageFormat _) async {
+      final pdf = _buildPdfDocument(
+        pedido: pedido,
+        tipoPagamento: tipoPagamento,
+        pageFormat: pageFormat,
+        nomeCliente: nomeCliente,
+        telefoneCliente: telefoneCliente,
+      );
+      return pdf.save();
+    },
+    name: _nomeAutomatico(pedido.id!),
+    format: pageFormat,
+    // ❌ useDynamicLayout removido — não existe nesta versão do printing
+  );
+}
+
+  // ─────────────────────────────────────────────
+  // Impressão silenciosa para impressora guardada
+  // Fallback automático para diálogo se não houver
+  // impressora configurada.
+  // ─────────────────────────────────────────────
+Future<void> imprimirSilencioso({
+  required Pedido pedido,
+  required String tipoPagamento,
+  required Printer impressora,
+  String? nomeCliente,
+  String? telefoneCliente,
+  PaperFormat paperFormat = PaperFormat.thermal80mm,
+}) async {
+  final pageFormat = _pageFormatFor(paperFormat);
+ 
+  await Printing.directPrintPdf(
+    printer: impressora,
+    onLayout: (PdfPageFormat _) async {
+      final pdf = _buildPdfDocument(
+        pedido: pedido,
+        tipoPagamento: tipoPagamento,
+        pageFormat: pageFormat,
+        nomeCliente: nomeCliente,
+        telefoneCliente: telefoneCliente,
+      );
+      return pdf.save();
+    },
+    name: _nomeAutomatico(pedido.id!),
+  );
+}
+ 
+
+
+
+/// Nomenclatura automática: FAT-00054-20260312-2159
+String _nomeAutomatico(int pedidoId) {
+  final agora = DateTime.now();
+  final id = pedidoId.toString().padLeft(5, '0');
+  final data = DateFormat('yyyyMMdd').format(agora);
+  final hora = DateFormat('HHmm').format(agora);
+  return 'FAT-$id-$data-$hora';
+}
+
+  // ─────────────────────────────────────────────
+  // Divisor adaptativo
   // ─────────────────────────────────────────────
   pw.Widget _divider(bool isSmall) {
     if (isSmall) {
@@ -157,7 +232,6 @@ class PdfService {
     required double baseFontSize,
   }) {
     if (isSmall) {
-      // Layout centralizado para térmica
       return pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
@@ -193,7 +267,6 @@ class PdfService {
       );
     }
 
-    // Layout A4 — duas colunas
     return pw.Container(
       decoration: const pw.BoxDecoration(
         border: pw.Border(
@@ -227,10 +300,7 @@ class PdfService {
             children: [
               pw.Text(
                 'COMPROVATIVO DE VENDA',
-                style: pw.TextStyle(
-                  fontSize: 20,
-                  fontWeight: pw.FontWeight.bold,
-                ),
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
               ),
               pw.SizedBox(height: 4),
               pw.Text(
@@ -267,24 +337,13 @@ class PdfService {
         children: [
           pw.Text(
             'CLIENTE',
-            style: pw.TextStyle(
-              fontSize: baseFontSize,
-              fontWeight: pw.FontWeight.bold,
-            ),
+            style: pw.TextStyle(fontSize: baseFontSize, fontWeight: pw.FontWeight.bold),
             textAlign: pw.TextAlign.center,
           ),
           if (nome != null)
-            pw.Text(
-              nome,
-              style: pw.TextStyle(fontSize: baseFontSize),
-              textAlign: pw.TextAlign.center,
-            ),
+            pw.Text(nome, style: pw.TextStyle(fontSize: baseFontSize), textAlign: pw.TextAlign.center),
           if (telefone != null)
-            pw.Text(
-              telefone,
-              style: pw.TextStyle(fontSize: baseFontSize),
-              textAlign: pw.TextAlign.center,
-            ),
+            pw.Text(telefone, style: pw.TextStyle(fontSize: baseFontSize), textAlign: pw.TextAlign.center),
         ],
       );
     }
@@ -300,25 +359,20 @@ class PdfService {
         children: [
           pw.Text(
             'CLIENTE',
-            style: pw.TextStyle(
-              fontSize: 12,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.grey800,
-            ),
+            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800),
           ),
           pw.SizedBox(height: 8),
           if (nome != null)
             pw.Text('Nome: $nome', style: const pw.TextStyle(fontSize: 11)),
           if (telefone != null)
-            pw.Text('Telefone: $telefone',
-                style: const pw.TextStyle(fontSize: 11)),
+            pw.Text('Telefone: $telefone', style: const pw.TextStyle(fontSize: 11)),
         ],
       ),
     );
   }
 
   // ─────────────────────────────────────────────
-  // Lista de itens (substitui pw.Table)
+  // Lista de itens
   // ─────────────────────────────────────────────
   pw.Widget _buildItemsList({
     required Pedido pedido,
@@ -327,7 +381,6 @@ class PdfService {
   }) {
     final itens = pedido.itens ?? [];
 
-    // Cabeçalho da secção
     final List<pw.Widget> widgets = [
       pw.Text(
         'ITENS',
@@ -343,21 +396,16 @@ class PdfService {
 
     for (final item in itens) {
       final nomeProduto = item.produto?.nome ?? 'Produto';
-      final subtotalStr =
-          'MZN ${item.subtotal.toStringAsFixed(2)}';
+      final subtotalStr = 'MZN ${item.subtotal.toStringAsFixed(2)}';
 
       if (isSmall) {
-        // Nome em negrito, detalhes logo abaixo
         widgets.add(
           pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
                 nomeProduto,
-                style: pw.TextStyle(
-                  fontSize: baseFontSize,
-                  fontWeight: pw.FontWeight.bold,
-                ),
+                style: pw.TextStyle(fontSize: baseFontSize, fontWeight: pw.FontWeight.bold),
               ),
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -368,10 +416,7 @@ class PdfService {
                   ),
                   pw.Text(
                     subtotalStr,
-                    style: pw.TextStyle(
-                      fontSize: baseFontSize - 1,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                    style: pw.TextStyle(fontSize: baseFontSize - 1, fontWeight: pw.FontWeight.bold),
                   ),
                 ],
               ),
@@ -380,48 +425,29 @@ class PdfService {
           ),
         );
       } else {
-        // Layout A4 — nome em linha, detalhes em Row abaixo
         widgets.add(
           pw.Container(
             padding: const pw.EdgeInsets.symmetric(vertical: 6),
             decoration: const pw.BoxDecoration(
-              border: pw.Border(
-                bottom: pw.BorderSide(color: PdfColors.grey300),
-              ),
+              border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300)),
             ),
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
                   nomeProduto,
-                  style: pw.TextStyle(
-                    fontSize: baseFontSize,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
+                  style: pw.TextStyle(fontSize: baseFontSize, fontWeight: pw.FontWeight.bold),
                 ),
                 pw.SizedBox(height: 2),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text(
-                      'Qtd: ${item.quantidade}',
-                      style: pw.TextStyle(
-                          fontSize: baseFontSize - 1,
-                          color: PdfColors.grey700),
-                    ),
-                    pw.Text(
-                      'Un.: MZN ${item.precoUnitario.toStringAsFixed(2)}',
-                      style: pw.TextStyle(
-                          fontSize: baseFontSize - 1,
-                          color: PdfColors.grey700),
-                    ),
-                    pw.Text(
-                      'Sub: MZN ${item.subtotal.toStringAsFixed(2)}',
-                      style: pw.TextStyle(
-                        fontSize: baseFontSize - 1,
-                        fontWeight: pw.FontWeight.bold,
-                      ),
-                    ),
+                    pw.Text('Qtd: ${item.quantidade}',
+                        style: pw.TextStyle(fontSize: baseFontSize - 1, color: PdfColors.grey700)),
+                    pw.Text('Un.: MZN ${item.precoUnitario.toStringAsFixed(2)}',
+                        style: pw.TextStyle(fontSize: baseFontSize - 1, color: PdfColors.grey700)),
+                    pw.Text('Sub: MZN ${item.subtotal.toStringAsFixed(2)}',
+                        style: pw.TextStyle(fontSize: baseFontSize - 1, fontWeight: pw.FontWeight.bold)),
                   ],
                 ),
               ],
@@ -432,9 +458,8 @@ class PdfService {
     }
 
     return pw.Column(
-      crossAxisAlignment: isSmall
-          ? pw.CrossAxisAlignment.stretch
-          : pw.CrossAxisAlignment.start,
+      crossAxisAlignment:
+          isSmall ? pw.CrossAxisAlignment.stretch : pw.CrossAxisAlignment.start,
       children: widgets,
     );
   }
@@ -450,8 +475,7 @@ class PdfService {
   }) {
     final isDinheiro = tipoPagamento.toLowerCase().contains('dinheiro');
     final totalStr = 'MZN ${pedido.total.toStringAsFixed(2)}';
-    final valorPagoStr =
-        'MZN ${(pedido.valorPagoManual ?? 0.0).toStringAsFixed(2)}';
+    final valorPagoStr = 'MZN ${(pedido.valorPagoManual ?? 0.0).toStringAsFixed(2)}';
     final trocoStr = 'MZN ${(pedido.troco ?? 0.0).toStringAsFixed(2)}';
 
     pw.Widget paymentRow(String label, String value,
@@ -462,25 +486,19 @@ class PdfService {
           pw.Text(label,
               style: pw.TextStyle(
                   fontSize: baseFontSize,
-                  fontWeight:
-                      bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+                  fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
           pw.Text(value,
               style: pw.TextStyle(
-                fontSize: baseFontSize,
-                fontWeight: pw.FontWeight.bold,
-                color: color,
-              )),
+                  fontSize: baseFontSize,
+                  fontWeight: pw.FontWeight.bold,
+                  color: color)),
         ],
       );
     }
 
     final rows = <pw.Widget>[
-      paymentRow(
-        'TOTAL',
-        totalStr,
-        bold: true,
-        color: isSmall ? PdfColors.black : PdfColors.teal,
-      ),
+      paymentRow('TOTAL', totalStr, bold: true,
+          color: isSmall ? PdfColors.black : PdfColors.teal),
       pw.SizedBox(height: isSmall ? 3 : 8),
       paymentRow('Pagamento:', tipoPagamento),
       if (isDinheiro) ...[
@@ -492,10 +510,7 @@ class PdfService {
     ];
 
     if (isSmall) {
-      return pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-        children: rows,
-      );
+      return pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: rows);
     }
 
     return pw.Container(
@@ -511,10 +526,7 @@ class PdfService {
   // ─────────────────────────────────────────────
   // Rodapé
   // ─────────────────────────────────────────────
-  pw.Widget _buildFooter({
-    required bool isSmall,
-    required double baseFontSize,
-  }) {
+  pw.Widget _buildFooter({required bool isSmall, required double baseFontSize}) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.center,
       children: [
@@ -540,10 +552,7 @@ class PdfService {
         pw.SizedBox(height: isSmall ? 2 : 4),
         pw.Text(
           'Bar Digital © ${DateTime.now().year}',
-          style: pw.TextStyle(
-            fontSize: baseFontSize - 1,
-            color: PdfColors.grey600,
-          ),
+          style: pw.TextStyle(fontSize: baseFontSize - 1, color: PdfColors.grey600),
           textAlign: pw.TextAlign.center,
         ),
       ],
@@ -551,81 +560,70 @@ class PdfService {
   }
 
   // ─────────────────────────────────────────────
-  // Salvar PDF no Android / iOS
+  // Salvar PDF em disco
   // ─────────────────────────────────────────────
- Future<File> _savePdf(pw.Document pdf, int pedidoId) async {
-  final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-  final fileName = 'Comprovativo_${pedidoId}_$timestamp.pdf';
+  Future<File> _savePdf(pw.Document pdf, int pedidoId) async {
 
-  Directory directory;
+   final fileName = '${_nomeAutomatico(pedidoId)}.pdf';  // 🔥
+    Directory directory;
 
-  try {
-    if (Platform.isAndroid) {
-      Directory? dir;
-
-      // Tentativa 1: pasta Downloads pública (funciona em dispositivos reais)
-      try {
-        final downloads = Directory('/storage/emulated/0/Download/');
-        if (await downloads.exists()) {
-          final testFile = File('${downloads.path}/.write_test');
-          await testFile.writeAsString('test');
-          await testFile.delete();
-          dir = downloads;
-        }
-      } catch (_) {}
-
-      // Tentativa 2: directório externo da app (funciona em emuladores)
-      if (dir == null) {
+    try {
+      if (Platform.isAndroid) {
+        Directory? dir;
         try {
-          final extDir = await getExternalStorageDirectory();
-          if (extDir != null) {
-            dir = Directory('${extDir.path}/Downloads');
-            if (!await dir.exists()) {
-              await dir.create(recursive: true);
-            }
+          final downloads = Directory('/storage/emulated/0/Download/');
+          if (await downloads.exists()) {
+            final testFile = File('${downloads.path}/.write_test');
+            await testFile.writeAsString('test');
+            await testFile.delete();
+            dir = downloads;
           }
         } catch (_) {}
+
+        if (dir == null) {
+          try {
+            final extDir = await getExternalStorageDirectory();
+            if (extDir != null) {
+              dir = Directory('${extDir.path}/Downloads');
+              if (!await dir.exists()) await dir.create(recursive: true);
+            }
+          } catch (_) {}
+        }
+
+        directory = dir ?? await getApplicationDocumentsDirectory();
+      } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        final downloads = await getDownloadsDirectory();
+        directory = downloads ?? await getApplicationDocumentsDirectory();
+      } else {
+        directory = await getApplicationDocumentsDirectory();
       }
-
-      // Fallback: documentos internos da app
-      directory = dir ?? await getApplicationDocumentsDirectory();
-
-    } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      final downloads = await getDownloadsDirectory();
-      directory = downloads ?? await getApplicationDocumentsDirectory();
-    } else {
-      // iOS e outros
+    } catch (_) {
       directory = await getApplicationDocumentsDirectory();
     }
-  } catch (_) {
-    directory = await getApplicationDocumentsDirectory();
+
+    final file = File('${directory.path}/$fileName');
+    await file.writeAsBytes(await pdf.save());
+    return file;
   }
 
-  final file = File('${directory.path}/$fileName');
-  await file.writeAsBytes(await pdf.save());
-  print('📁 PDF guardado em: ${file.path}');
-  return file;
-}
   // ─────────────────────────────────────────────
-  // Abrir PDF
+  // Abrir PDF em leitor externo
   // ─────────────────────────────────────────────
-Future<void> abrirPdf(File file) async {
-  final result = await OpenFile.open(file.path);
-  
-  switch (result.type) {
-    case ResultType.done:
-      return;
-    case ResultType.noAppToOpen:
-      throw Exception(
-        'Nenhuma app de leitura de PDF encontrada.\n'
-        'O ficheiro foi guardado em:\n${file.path}',
-      );
-    case ResultType.fileNotFound:
-      throw Exception('Ficheiro não encontrado: ${file.path}');
-    case ResultType.permissionDenied:
-      throw Exception('Permissão negada ao abrir o ficheiro.');
-    case ResultType.error:
-      throw Exception('Erro ao abrir o PDF: ${result.message}');
+  Future<void> abrirPdf(File file) async {
+    final result = await OpenFile.open(file.path);
+    switch (result.type) {
+      case ResultType.done:
+        return;
+      case ResultType.noAppToOpen:
+        throw Exception(
+          'Nenhuma app de leitura de PDF encontrada.\nFicheiro em: ${file.path}',
+        );
+      case ResultType.fileNotFound:
+        throw Exception('Ficheiro não encontrado: ${file.path}');
+      case ResultType.permissionDenied:
+        throw Exception('Permissão negada ao abrir o ficheiro.');
+      case ResultType.error:
+        throw Exception('Erro ao abrir o PDF: ${result.message}');
+    }
   }
-}
 }

@@ -5,13 +5,13 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import 'sessao_service.dart';
 import 'estoque_alerta_service.dart';
-
+import 'package:flutter/foundation.dart'; 
 class PushNotificationService {
   static final PushNotificationService instance = PushNotificationService._();
   PushNotificationService._();
+FirebaseMessaging? _fcm;
 
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+FlutterLocalNotificationsPlugin? _localNotifications;
   
   bool _inicializado = false;
   String? _fcmToken;
@@ -21,6 +21,10 @@ class PushNotificationService {
 
   // 🔥 NOVO: Inicializar com timeout
   Future<void> inicializar() async {
+     if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
+    print('⏭️ FCM não suportado nesta plataforma');
+    return;
+  }
     if (_inicializado) return;
 
     try {
@@ -37,7 +41,9 @@ class PushNotificationService {
   }
 
   Future<void> _inicializarFCM() async {
-    final settings = await _fcm.requestPermission(
+    _fcm = FirebaseMessaging.instance;
+
+    final settings = await _fcm!.requestPermission(
       alert: true,
       badge: true,
       sound: true,
@@ -51,12 +57,14 @@ class PushNotificationService {
 
     print('✅ Permissões FCM concedidas');
 
-    _fcmToken = await _fcm.getToken();
+    _fcmToken = await _fcm!.getToken();
     print('🔑 FCM Token: $_fcmToken');
 
-    await _fcm.subscribeToTopic('estoque_ruptura');
+    await _fcm!.subscribeToTopic('estoque_ruptura');
     print('📢 Inscrito no tópico: estoque_ruptura');
 
+
+_localNotifications = FlutterLocalNotificationsPlugin();
     await _configurarNotificacoesLocais();
     _configurarHandlers();
     _monitorarEstadoApp();
@@ -78,10 +86,10 @@ class PushNotificationService {
       iOS: iosSettings,
     );
 
-    await _localNotifications.initialize(
-      settings,
-      onDidReceiveNotificationResponse: _onNotificationTap,
-    );
+await _localNotifications!.initialize(   // ← adicionar !
+  settings,
+  onDidReceiveNotificationResponse: _onNotificationTap,
+);
   }
 
   // 🔥 NOVO: Monitorar estado do app (foreground/background)
@@ -133,10 +141,10 @@ class PushNotificationService {
   Future<void> _limparNotificacoesAoAbrirApp() async {
     try {
       // Cancelar todas as notificações locais pendentes
-      await _localNotifications.cancelAll();
+   await _localNotifications?.cancelAll();
       
       // Limpar badge no iOS
-      await _fcm.setForegroundNotificationPresentationOptions(
+      await _fcm!.setForegroundNotificationPresentationOptions(
         alert: false,
         badge: false,
         sound: false,
@@ -176,13 +184,13 @@ class PushNotificationService {
       iOS: iosDetails,
     );
 
-    await _localNotifications.show(
-      notification.hashCode,
-      notification.title,
-      notification.body,
-      details,
-      payload: message.data['id_produto']?.toString(),
-    );
+await _localNotifications?.show(         // ← usar ?.
+  notification.hashCode,
+  notification.title,
+  notification.body,
+  details,
+  payload: message.data['id_produto']?.toString(),
+);
   }
 
   Future<void> _onNotificationTap(NotificationResponse response) async {
@@ -254,7 +262,7 @@ class PushNotificationService {
   }
 
   Future<void> desinscreverTopico(String topico) async {
-    await _fcm.unsubscribeFromTopic(topico);
+    await _fcm!.unsubscribeFromTopic(topico);
     print('❌ Desinscrito do tópico: $topico');
   }
 

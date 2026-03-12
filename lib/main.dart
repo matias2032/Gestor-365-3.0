@@ -4,8 +4,6 @@ import 'package:flutter/services.dart';
 
 // Serviços
 import 'services/sessao_service.dart';
-import 'services/notificacao_estoque_service.dart';
-import 'services/estoque_alerta_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
@@ -40,9 +38,9 @@ import 'screens/primeira_troca_senha.dart';
 import 'screens/corrigir_imagens_screen.dart';
 import 'services/conectividade_service.dart';
 import 'widgets/conectividade_dialog.dart';
-import 'widgets/conectividade_indicator.dart';
 import 'services/supabase_sync_service.dart';
-import 'services/validade_alerta_service.dart';
+import 'package:flutter/foundation.dart'; 
+import 'dart:async';
 
 // 🔥 HANDLER BACKGROUND (TOP-LEVEL)
 @pragma('vm:entry-point')
@@ -52,40 +50,52 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 } 
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Capturar TODOS os erros não tratados
+  FlutterError.onError = (FlutterErrorDetails details) {
+    print('🔴 FlutterError: ${details.exception}');
+    print('🔴 Stack: ${details.stack}');
+  };
 
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  
-  // Permitir todas as orientações
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
-  
-  
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-    print('✅ Firebase inicializado');
-    
-    // 🔥 Verificar se app foi aberto por notificação (quando estava fechado)
-    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
-      if (message != null) {
-        print('📬 App aberto por notificação (terminated): ${message.data}');
-        // Agendar processamento após app inicializar
-        _agendarProcessamentoNotificacaoInicial(message);
+    print('✅ 1. WidgetsFlutterBinding OK');
+
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+
+    print('✅ 2. Orientações OK');
+
+    // Firebase APENAS em plataformas suportadas
+    if (!kIsWeb && defaultTargetPlatform != TargetPlatform.windows) {
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+        FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+        FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+          if (message != null) _agendarProcessamentoNotificacaoInicial(message);
+        });
+        print('✅ 3. Firebase OK');
+      } catch (e) {
+        print('⚠️ Firebase erro: $e');
       }
-    });
-    
-  } catch (e) {
-    print('⚠️ Erro Firebase: $e');
-  }
-  
-  runApp(const MyApp());
+    } else {
+      print('⏭️ 3. Firebase pulado (Windows)');
+    }
+
+    print('✅ 4. Chamando runApp...');
+    runApp(const MyApp());
+    print('✅ 5. runApp OK');
+
+  }, (error, stack) {
+    print('🔴 ERRO FATAL: $error');
+    print('🔴 STACK: $stack');
+  });
 }
 
 // 🔥 Processar notificação inicial após delay
@@ -262,10 +272,11 @@ class ConectividadeListener {
 
 class _MyAppState extends State<MyApp> {
   late final AppLifecycleObserver _lifecycleObserver;
-  
+    late final ThemeProvider _themeProvider;
   @override
   void initState() {
     super.initState();
+     _themeProvider = ThemeProvider();
     _lifecycleObserver = AppLifecycleObserver();
     WidgetsBinding.instance.addObserver(_lifecycleObserver);
     
@@ -285,17 +296,16 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = ThemeProvider();
-    
+       
     return AnimatedBuilder(
-      animation: themeProvider,
+       animation: _themeProvider,
       builder: (context, child) {
         return MaterialApp(
           title: 'Gestor 365',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
-          themeMode: themeProvider.themeMode,
+          themeMode: _themeProvider.themeMode,
           navigatorKey: MyApp.navigatorKey,
           scaffoldMessengerKey: MyApp.messengerKey,
           initialRoute: '/splash',

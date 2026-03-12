@@ -9,8 +9,13 @@ import '../models/produto_imagem.dart';
 import '../models/pedido.dart';
 import 'dart:async';
 import'../services/estoque_alerta_service.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:flutter/foundation.dart'; // Para kIsWeb e defaultTargetPlatform
+
 // Definindo a versão do DB como 2 para ativar o onUpgrade se já existir a v1
 const int _dbVersion = 10;
+
+
 
 class DatabaseService {
   // Padrão Singleton
@@ -19,13 +24,22 @@ class DatabaseService {
 
   DatabaseService._init();
 
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    
-    // Nome do arquivo do banco
-    _database = await _initDB('bar_digital_v2.db'); 
-    return _database!;
+ Future<Database> get database async {
+  if (_database != null) return _database!;
+
+  // ✅ Inicializar FFI para Windows/Linux/macOS
+  if (!kIsWeb && (
+    defaultTargetPlatform == TargetPlatform.windows ||
+    defaultTargetPlatform == TargetPlatform.linux ||
+    defaultTargetPlatform == TargetPlatform.macOS
+  )) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
   }
+
+  _database = await _initDB('bar_digital_v2.db');
+  return _database!;
+}
 
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();

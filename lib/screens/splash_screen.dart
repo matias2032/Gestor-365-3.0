@@ -2,23 +2,20 @@
 
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-
-// Serviços
 import '../services/base_de_dados.dart';
 import '../services/supabase_sync_service.dart';
 import '../services/sessao_service.dart';
 import '../services/notificacao_estoque_service.dart';
 import '../services/estoque_alerta_service.dart';
 import '../providers/theme_provider.dart';
-import 'package:gestao_bar_pos/firebase_options.dart';
 import '../services/push_notification_service.dart';
 import '../services/conectividade_service.dart';
 import '../widgets/conectividade_dialog.dart';
 import '../services/validade_alerta_service.dart';
+import 'package:flutter/foundation.dart'; 
 
 // Telas
 import 'tela_login.dart';
@@ -50,7 +47,23 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _setupAnimations();
     _initializeApp();
+      ConectividadeService.instance.addListener(_onConectividadeMudou);
   }
+
+  void _onConectividadeMudou(bool isOnline, bool forcarSync) {
+  if (isOnline && mounted) {
+    print('🌐 Reconexão detetada na splash - reiniciando inicialização');
+    setState(() {
+      _hasError = false;
+      _progress = 0.0;
+      _statusMessage = 'Reconectado! Reiniciando...';
+    });
+    // Pequeno delay para o utilizador ver o feedback
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) _initializeApp();
+    });
+  }
+}
 
   void _setupAnimations() {
     _controller = AnimationController(
@@ -140,21 +153,32 @@ Future<void> _continuarInicializacao({required bool isOnline}) async {
   tz.setLocalLocation(tz.getLocation('Africa/Maputo'));
   await Future.delayed(const Duration(milliseconds: 200));
 
-  // 3️⃣ Inicializar Supabase (30%)
-  await _updateProgress(0.30, 'Conectando ao servidor...');
+// 3️⃣ Inicializar Supabase (30%)
+await _updateProgress(0.30, 'Conectando ao servidor...');
+// ✅ Verificar se já foi inicializado
+try {
+  Supabase.instance.client; // Se não lançar exceção, já está inicializado
+  print('✅ Supabase já inicializado');
+} catch (_) {
   await Supabase.initialize(
     url: 'https://nyxllwldebpqmusymhir.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55eGxsd2xkZWJwcW11c3ltaGlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MTY2MjMsImV4cCI6MjA4NTI5MjYyM30.irBuXAEM2CsJBdFu-V3qe_ymZU5I73DRjhkJFCgVZ28',
   );
   print('✅ Supabase inicializado');
+}
   await Future.delayed(const Duration(milliseconds: 400));
 
 // 4️⃣ Inicializar Firebase/FCM (40%) - CONDICIONALMENTE
 await _updateProgress(0.40, 'Configurando notificações push...');
 if (isOnline) {
   try {
-    await PushNotificationService.instance.inicializar();
-    print('✅ FCM inicializado');
+     // ✅ Pular FCM no Windows
+    if (!kIsWeb && defaultTargetPlatform != TargetPlatform.windows) {
+      await PushNotificationService.instance.inicializar();
+      print('✅ FCM inicializado');
+    } else {
+      print('⏭️ FCM pulado (Windows não suportado)');
+    }
   } catch (e) {
     print('⚠️ FCM não disponível: $e');
   }
@@ -188,12 +212,17 @@ await Future.delayed(const Duration(milliseconds: 300));
   await ThemeProvider().initTheme();
   await Future.delayed(const Duration(milliseconds: 200));
 
-  // 8️⃣ Inicializar Notificações Locais (87%)
+// 8️⃣ Inicializar Notificações Locais (87%) - apenas não-Windows
+if (!kIsWeb && defaultTargetPlatform != TargetPlatform.windows) {
   await _updateProgress(0.87, 'Configurando alertas...');
   await NotificacaoEstoqueService.instance.inicializar();
   await EstoqueAlertaService.instance.inicializar();
   await ValidadeAlertaService.instance.inicializar();
   await Future.delayed(const Duration(milliseconds: 300));
+} else {
+  await _updateProgress(0.87, 'Preparando sistema...');
+  await Future.delayed(const Duration(milliseconds: 300));
+}
 
   // 9️⃣ Verificar Sessão COM VALIDAÇÃO
   await _updateProgress(0.95, 'Verificando sessão...');
@@ -241,6 +270,7 @@ await Future.delayed(const Duration(milliseconds: 300));
 
   @override
   void dispose() {
+    ConectividadeService.instance.removeListener(_onConectividadeMudou);
     _controller.dispose();
     super.dispose();
   }
@@ -372,7 +402,7 @@ child: Padding(
         ),
       ),
       child: const Text(
-        'Criado por Matias Matavel',
+        'Criado por PTM',
         style: TextStyle(
           fontSize: 16,
           color: Colors.white,

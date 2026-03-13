@@ -657,19 +657,13 @@ Future<void> imprimirViaSumatra({
   );
   final file = await _savePdf(pdf, pedido.id!);
 
-  // final result = await Process.run(sumatraPath, [
-  //   '-print-to', impressoraNome,
-  //   '-print-settings', 'fit',
-  //   '-silent',
-  //   file.path,
-  // ]);
+  final result = await Process.run(sumatraPath, [
+    '-print-to', impressoraNome,
+    '-print-settings', 'fit',
+    '-silent',
+    file.path,
+  ]);
 
-final result = await Process.run(sumatraPath, [
-  '-print-to', impressoraNome,
-  '-print-settings', 'fit,rotate=180',  // ← adiciona rotate=180
-  '-silent',
-  file.path,
-]);
 
 
 

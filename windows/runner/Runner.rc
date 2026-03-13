@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "gestao_bar_pos" "\0"
+            VALUE "CompanyName", "Gestor 365" "\0"
+            VALUE "FileDescription", "Gestor 365" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "gestao_bar_pos" "\0"
+            VALUE "InternalName", "gestor_365" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
             VALUE "OriginalFilename", "gestao_bar_pos.exe" "\0"
-            VALUE "ProductName", "gestao_bar_pos" "\0"
+            VALUE "ProductName", "Gestor 365" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

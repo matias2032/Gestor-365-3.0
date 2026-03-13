@@ -237,18 +237,18 @@ Future<void> _gerarEImprimirFatura() async {
       );
       await _pdfService.abrirPdf(pdfFile);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('💡 Configure uma impressora padrão para impressão automática'),
-            action: SnackBarAction(
-              label: 'Configurar',
-              onPressed: () => Navigator.of(context)
-                  .pushNamed('/configuracoes_impressora'),
-            ),
-          ),
-        );
-      }
+      // if (mounted) {
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     SnackBar(
+      //       content: const Text('💡 Configure uma impressora padrão para impressão automática'),
+      //       action: SnackBarAction(
+      //         label: 'Configurar',
+      //         onPressed: () => Navigator.of(context)
+      //             .pushNamed('/configuracoes_impressora'),
+      //       ),
+      //     ),
+      //   );
+      // }
     }
   } catch (e) {
     if (mounted) Navigator.of(context).pop();

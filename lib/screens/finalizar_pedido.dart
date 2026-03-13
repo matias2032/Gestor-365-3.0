@@ -190,7 +190,7 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
   }
 }
 
- Future<void> _gerarEImprimirFatura() async {
+Future<void> _gerarEImprimirFatura() async {
   _mostrarLoading('Preparando impressão...');
 
   try {
@@ -204,27 +204,27 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
 
     if (mounted) Navigator.of(context).pop(); // fecha loading
 
-    // 🔥 Tenta impressora padrão primeiro (silenciosa)
-    final impressoraPadrao =
-        await ImpressoraService.instance.getImpressoraPadrao();
+    // Lê o nome da impressora guardado no ImpressoraService
+    final impressoraNome =
+        await ImpressoraService.instance.lerImpressoraPadrao();
 
-    if (impressoraPadrao != null) {
-      // ✅ Impressão silenciosa — zero diálogos
-      await _pdfService.imprimirSilencioso(
-        pedido: pedidoAtualizado,
-        tipoPagamento: tipoPagamento,
-        impressora: impressoraPadrao,
-        nomeCliente: _nomeClienteController.text.isEmpty
-            ? null
-            : _nomeClienteController.text,
-        telefoneCliente: _telefoneClienteController.text.isEmpty
-            ? null
-            : _telefoneClienteController.text,
-        paperFormat: PaperFormat.thermal80mm,
-      );
+    if (impressoraNome != null) {
+      // ✅ Impressão silenciosa via SumatraPDF
+   await _pdfService.imprimirViaSumatra(
+  pedido: pedidoAtualizado,
+  tipoPagamento: tipoPagamento,
+  impressoraNome: impressoraNome,
+  nomeCliente: _nomeClienteController.text.isEmpty
+      ? null
+      : _nomeClienteController.text,
+  telefoneCliente: _telefoneClienteController.text.isEmpty
+      ? null
+      : _telefoneClienteController.text,
+  // ← sem sumatraPath, é resolvido automaticamente
+);
     } else {
-      // Fallback: diálogo nativo se não houver impressora configurada
-      await _pdfService.imprimirComprovativo(
+      // Fallback: gera e abre o PDF para impressão manual
+      final pdfFile = await _pdfService.gerarComprovativo(
         pedido: pedidoAtualizado,
         tipoPagamento: tipoPagamento,
         nomeCliente: _nomeClienteController.text.isEmpty
@@ -235,16 +235,16 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
             : _telefoneClienteController.text,
         paperFormat: PaperFormat.thermal80mm,
       );
+      await _pdfService.abrirPdf(pdfFile);
 
-      // Avisa que pode configurar impressora padrão
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('💡 Defina uma impressora padrão nas Definições para impressão automática'),
-            duration: const Duration(seconds: 4),
+            content: const Text('💡 Configure uma impressora padrão para impressão automática'),
             action: SnackBarAction(
               label: 'Configurar',
-              onPressed: () => Navigator.of(context).pushNamed('/configuracoes-impressora'),
+              onPressed: () => Navigator.of(context)
+                  .pushNamed('/configuracoes_impressora'),
             ),
           ),
         );
@@ -254,16 +254,15 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
     if (mounted) Navigator.of(context).pop();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erro ao imprimir: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Erro ao imprimir: $e'),
+            backgroundColor: Colors.red),
       );
     }
   }
 
   _voltarParaInicio();
 }
+
 
 // Helper reutilizável para loading
 void _mostrarLoading(String mensagem) {

@@ -402,7 +402,7 @@ child: Padding(
         ),
       ),
       child: const Text(
-        'Criado por Matias Matavel2',
+        'Esse Gajo ',
         style: TextStyle(
           fontSize: 16,
           color: Colors.white,

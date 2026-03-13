@@ -1,3 +1,5 @@
+
+@REM Para debug(desenvolvimento)
 @REM @echo off
 @REM cd /d "%~dp0"
 
@@ -16,7 +18,7 @@
 @REM gestao_bar_pos.exe
 
 
-@REM Para release
+@REM Para release(produção)
 @echo off
 cd /d "%~dp0"
 

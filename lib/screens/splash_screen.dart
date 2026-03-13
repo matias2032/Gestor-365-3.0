@@ -188,10 +188,21 @@ if (isOnline) {
 await Future.delayed(const Duration(milliseconds: 300));
 
   // 5️⃣ Inicializar Banco de Dados Local (55%)
-  await _updateProgress(0.55, 'Preparando banco de dados...');
+await _updateProgress(0.55, 'Preparando banco de dados...');
+try {
   await DatabaseService.instance.database;
   print('📦 Banco de dados pronto');
-  await Future.delayed(const Duration(milliseconds: 300));
+} catch (e, stack) {
+  print('❌ ERRO BD: $e');
+  print('❌ STACK: $stack');
+  // 🔥 Mostrar erro real no ecrã em vez de mensagem genérica
+  setState(() {
+    _hasError = true;
+    _errorMessage = 'Erro BD: $e'; // ← erro real visível
+  });
+  return;
+}
+await Future.delayed(const Duration(milliseconds: 300));
 
   // 6️⃣ Inicializar Serviço de Sincronização (70%)
   await _updateProgress(0.70, 

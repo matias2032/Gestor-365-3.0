@@ -11,6 +11,8 @@ import 'dart:async';
 import'../services/estoque_alerta_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:flutter/foundation.dart'; // Para kIsWeb e defaultTargetPlatform
+import 'package:path_provider/path_provider.dart';
+import 'dart:io' as io;
 
 // Definindo a versão do DB como 2 para ativar o onUpgrade se já existir a v1
 const int _dbVersion = 10;
@@ -41,18 +43,33 @@ class DatabaseService {
   return _database!;
 }
 
-  Future<Database> _initDB(String filePath) async {
+Future<Database> _initDB(String fileName) async {
+  // 🔥 Usar AppData no Windows — Program Files não tem permissão de escrita
+  String path;
+  
+if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    final appDoc = await getApplicationDocumentsDirectory();
+    final dbDir = io.Directory('${appDoc.path}\\Gestor365');
+    if (!await dbDir.exists()) {
+      await dbDir.create(recursive: true);
+    }
+    path = '${dbDir.path}\\$fileName';
+  } else {
     final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
-
-    return await openDatabase(
-      path, 
-      version: _dbVersion,
-      onCreate: _createDB,      // Cria tabelas e dados iniciais
-      onConfigure: _onConfigure, // Ativa Foreign Keys
-      onUpgrade: _onUpgrade,    // Gerencia atualizações de versão
-    );
+    path = join(dbPath, fileName);
   }
+
+  print('📂 Base de dados em: $path');
+
+  return await databaseFactory.openDatabase(
+    path,
+    options: OpenDatabaseOptions(
+      version: _dbVersion,
+      onCreate: _createDB,
+      onUpgrade: _onUpgrade,
+    ),
+  );
+}
 
   Future _onConfigure(Database db) async {
     await db.execute('PRAGMA foreign_keys = ON');

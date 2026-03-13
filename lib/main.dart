@@ -8,6 +8,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'services/push_notification_service.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart'; 
 
 // Tema
 import 'theme/app_theme.dart';
@@ -59,6 +60,15 @@ void main() async {
 
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+
+       if (!kIsWeb && (
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS
+    )) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
 
     print('✅ 1. WidgetsFlutterBinding OK');
 

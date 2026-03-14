@@ -24,8 +24,8 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
   final PedidoAtivoService _pedidoAtivoService = PedidoAtivoService.instance; // 🔥 NOVO
   
   final TextEditingController _valorRecebidoController = TextEditingController();
-  final TextEditingController _nomeClienteController = TextEditingController();
-  final TextEditingController _telefoneClienteController = TextEditingController();
+  // final TextEditingController _nomeClienteController = TextEditingController();
+  // final TextEditingController _telefoneClienteController = TextEditingController();
     final SupabaseSyncService _syncService = SupabaseSyncService.instance;
 
   Pedido? _pedido;
@@ -45,8 +45,8 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
   @override
   void dispose() {
     _valorRecebidoController.dispose();
-    _nomeClienteController.dispose();
-    _telefoneClienteController.dispose();
+    // _nomeClienteController.dispose();
+    // _telefoneClienteController.dispose();
     super.dispose();
   }
 
@@ -60,9 +60,9 @@ class _FinalizarPedidoScreenState extends State<FinalizarPedidoScreen> {
         _tiposPagamento = tipos;
         _isLoading = false;
         
-        if (pedido?.telefone != null) {
-          _telefoneClienteController.text = pedido!.telefone!;
-        }
+        // if (pedido?.telefone != null) {
+        //   _telefoneClienteController.text = pedido!.telefone!;
+        // }
       });
     } catch (e) {
       setState(() => _isLoading = false);
@@ -214,12 +214,8 @@ Future<void> _gerarEImprimirFatura() async {
   pedido: pedidoAtualizado,
   tipoPagamento: tipoPagamento,
   impressoraNome: impressoraNome,
-  nomeCliente: _nomeClienteController.text.isEmpty
-      ? null
-      : _nomeClienteController.text,
-  telefoneCliente: _telefoneClienteController.text.isEmpty
-      ? null
-      : _telefoneClienteController.text,
+nomeCliente: null, // _nomeClienteController.text.isEmpty ? null : _nomeClienteController.text,
+telefoneCliente: null, // _telefoneClienteController.text.isEmpty ? null : _telefoneClienteController.text,
   // ← sem sumatraPath, é resolvido automaticamente
 );
     } else {
@@ -227,12 +223,8 @@ Future<void> _gerarEImprimirFatura() async {
       final pdfFile = await _pdfService.gerarComprovativo(
         pedido: pedidoAtualizado,
         tipoPagamento: tipoPagamento,
-        nomeCliente: _nomeClienteController.text.isEmpty
-            ? null
-            : _nomeClienteController.text,
-        telefoneCliente: _telefoneClienteController.text.isEmpty
-            ? null
-            : _telefoneClienteController.text,
+nomeCliente: null,
+telefoneCliente: null,
         paperFormat: PaperFormat.thermal80mm,
       );
       await _pdfService.abrirPdf(pdfFile);
@@ -320,12 +312,8 @@ Future<void> _gerarESalvarFatura() async {
     final pdfFile = await _pdfService.gerarComprovativo(
       pedido: pedidoAtualizado,
       tipoPagamento: tipoPagamento,
-      nomeCliente: _nomeClienteController.text.isEmpty
-          ? null
-          : _nomeClienteController.text,
-      telefoneCliente: _telefoneClienteController.text.isEmpty
-          ? null
-          : _telefoneClienteController.text,
+    nomeCliente: null, // _nomeClienteController.text.isEmpty ? null : _nomeClienteController.text,
+  telefoneCliente: null, // _telefoneClienteController.text.isEmpty ? null : _telefoneClienteController.text,
       paperFormat: PaperFormat.thermal80mm,
     );
 
@@ -445,45 +433,45 @@ bool get _podeFinalizar {
             ),
             const SizedBox(height: 24),
 
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person_outline, color: Colors.grey.shade600),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Informações do Cliente (Opcional)',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _nomeClienteController,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome do Cliente',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.person),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _telefoneClienteController,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Telefone',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.phone),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            // Card(
+            //   child: Padding(
+            //     padding: const EdgeInsets.all(16),
+            //     child: Column(
+            //       crossAxisAlignment: CrossAxisAlignment.start,
+            //       children: [
+            //         Row(
+            //           children: [
+            //             Icon(Icons.person_outline, color: Colors.grey.shade600),
+            //             const SizedBox(width: 8),
+            //             const Text(
+            //               'Informações do Cliente (Opcional)',
+            //               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            //             ),
+            //           ],
+            //         ),
+            //         const SizedBox(height: 12),
+            //         TextField(
+            //           controller: _nomeClienteController,
+            //           decoration: const InputDecoration(
+            //             labelText: 'Nome do Cliente',
+            //             border: OutlineInputBorder(),
+            //             prefixIcon: Icon(Icons.person),
+            //           ),
+            //         ),
+            //         const SizedBox(height: 12),
+            //         TextField(
+            //           controller: _telefoneClienteController,
+            //           keyboardType: TextInputType.phone,
+            //           decoration: const InputDecoration(
+            //             labelText: 'Telefone',
+            //             border: OutlineInputBorder(),
+            //             prefixIcon: Icon(Icons.phone),
+            //           ),
+            //         ),
+            //       ],
+            //     ),
+            //   ),
+            // ),
             const SizedBox(height: 24),
 
             const Text(

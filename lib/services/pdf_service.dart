@@ -18,38 +18,83 @@ class PdfService {
   factory PdfService() => instance;
   PdfService._internal();
 
+
+double _estimarAlturaTotal(Pedido pedido, bool isSmall, bool temCliente) {
+  // Altura inicial (Margens superior/inferior)
+  double altura = isSmall ? 15.0 : 30.0;
+
+  // Cabeçalho (Título, Pedido #, Data)
+  altura += isSmall ? 25.0 : 45.0;
+
+  // Informação do Cliente
+  if (temCliente) {
+    altura += isSmall ? 15.0 : 35.0;
+  }
+
+  // Lista de Itens
+  final int totalItens = pedido.itens?.length ?? 0;
+  // No layout térmico (isSmall), cada item costuma ocupar 2 linhas
+  double alturaPorItem = isSmall ? 12.0 : 18.0; 
+  altura += (totalItens * alturaPorItem);
+
+  // Resumo de Pagamento (Total, Tipo, Troco)
+  altura += isSmall ? 20.0 : 40.0;
+
+  // Rodapé
+  altura += isSmall ? 15.0 : 25.0;
+
+  // Divisores (estimativa baseada em 4 divisores no código)
+  altura += 10.0;
+
+  return altura;
+}
   // ─────────────────────────────────────────────
   // Mapeamento de PaperFormat → PdfPageFormat
   // ─────────────────────────────────────────────
-  static PdfPageFormat _pageFormatFor(PaperFormat format) {
-    switch (format) {
-      case PaperFormat.thermal58mm:
-        return PdfPageFormat(58 * PdfPageFormat.mm, double.infinity);
-case PaperFormat.thermal80mm:
-  return PdfPageFormat(
-    80 * PdfPageFormat.mm,
-    double.infinity,   // ← altura cresce com o conteúdo
-    marginAll: 4 * PdfPageFormat.mm,
-  );
-      case PaperFormat.a4:
-        return PdfPageFormat.a4;
-    }
+static PdfPageFormat _pageFormatFor(PaperFormat format, double alturaDinamica) {
+  switch (format) {
+    case PaperFormat.thermal58mm:
+      return PdfPageFormat(
+        58 * PdfPageFormat.mm,
+        alturaDinamica * PdfPageFormat.mm,
+        marginAll: 2 * PdfPageFormat.mm,
+      );
+    case PaperFormat.thermal80mm:
+      return PdfPageFormat(
+        80 * PdfPageFormat.mm,
+        alturaDinamica * PdfPageFormat.mm,
+        marginAll: 4 * PdfPageFormat.mm,
+      );
+    case PaperFormat.a4:
+      return PdfPageFormat.a4;
   }
+}
 
   // ─────────────────────────────────────────────
   // HELPER CENTRAL: constrói o pw.Document
   // Usado por gerarComprovativo, imprimirComprovativo
   // e imprimirSilencioso — fonte única de verdade.
   // ─────────────────────────────────────────────
- pw.Document _buildPdfDocument({
+pw.Document _buildPdfDocument({
   required Pedido pedido,
   required String tipoPagamento,
-  required PdfPageFormat pageFormat,
+  required PaperFormat paperFormat, // Recebe o Enum agora
   String? nomeCliente,
   String? telefoneCliente,
 }) {
+  final bool isSmall = paperFormat != PaperFormat.a4;
+  
+  // 1. Calcula a altura dinâmica
+  final double alturaDinamica = _estimarAlturaTotal(
+    pedido, 
+    isSmall, 
+    (nomeCliente != null || telefoneCliente != null)
+  );
+
+  // 2. Gera o formato correto com a altura calculada
+  final pageFormat = _pageFormatFor(paperFormat, alturaDinamica);
+
   final pdf = pw.Document();
-  final bool isSmall = pageFormat.width < 300;
   final double margin = isSmall ? 10 : 40;
   final double baseFontSize = isSmall ? 9 : 12;
 
@@ -61,6 +106,7 @@ case PaperFormat.thermal80mm:
   pw.Page(
     pageTheme: pw.PageTheme(
       pageFormat: pageFormat,
+      orientation: pw.PageOrientation.portrait,
       margin: pw.EdgeInsets.all(margin),
       clip: true,
     ),
@@ -118,56 +164,53 @@ case PaperFormat.thermal80mm:
   // ─────────────────────────────────────────────
   // Gerar e SALVAR em ficheiro (comportamento original)
   // ─────────────────────────────────────────────
-  Future<File> gerarComprovativo({
+Future<File> gerarComprovativo({
     required Pedido pedido,
     required String tipoPagamento,
     String? nomeCliente,
     String? telefoneCliente,
     PaperFormat paperFormat = PaperFormat.a4,
   }) async {
-    final pageFormat = _pageFormatFor(paperFormat);
     final pdf = _buildPdfDocument(
       pedido: pedido,
       tipoPagamento: tipoPagamento,
-      pageFormat: pageFormat,
+      paperFormat: paperFormat, // Passa o enum diretamente
       nomeCliente: nomeCliente,
       telefoneCliente: telefoneCliente,
     );
     return _savePdf(pdf, pedido.id!);
   }
-
   // ─────────────────────────────────────────────
   // Imprimir com diálogo nativo (Printing.layoutPdf)
   // ─────────────────────────────────────────────
 Future<void> imprimirComprovativo({
-  required Pedido pedido,
-  required String tipoPagamento,
-  String? nomeCliente,
-  String? telefoneCliente,
-  PaperFormat paperFormat = PaperFormat.thermal80mm,
-}) async {
-  final pageFormat = _pageFormatFor(paperFormat);
+    required Pedido pedido,
+    required String tipoPagamento,
+    String? nomeCliente,
+    String? telefoneCliente,
+    PaperFormat paperFormat = PaperFormat.thermal80mm,
+  }) async {
+    // Nota: O buildPdfDocument já calcula a altura interna
+    final pdf = _buildPdfDocument(
+      pedido: pedido,
+      tipoPagamento: tipoPagamento,
+      paperFormat: paperFormat,
+      nomeCliente: nomeCliente,
+      telefoneCliente: telefoneCliente,
+    );
+    
+    final file = await _savePdf(pdf, pedido.id!);
+    final bytes = await file.readAsBytes();
 
-  // 1️⃣ Gera e salva o PDF com o tamanho correcto (mesmo fluxo do "Salvar")
-  final pdf = _buildPdfDocument(
-    pedido: pedido,
-    tipoPagamento: tipoPagamento,
-    pageFormat: pageFormat,
-    nomeCliente: nomeCliente,
-    telefoneCliente: telefoneCliente,
-  );
-  final file = await _savePdf(pdf, pedido.id!);
-
-  // 2️⃣ Abre o diálogo de impressão a partir do ficheiro já gerado
-  final bytes = await file.readAsBytes();
-
-  await Printing.layoutPdf(
-    onLayout: (_) async => bytes,   // ← bytes já têm o MediaBox 80mm correcto
-    name: _nomeAutomatico(pedido.id!),
-    format: pageFormat,
-    dynamicLayout: false,
-  );
-}
+    await Printing.layoutPdf(
+      onLayout: (_) async => bytes,
+      name: _nomeAutomatico(pedido.id!),
+      // Aqui usamos uma altura genérica para o diálogo, 
+      // mas os bytes já levam a altura correta.
+      format: _pageFormatFor(paperFormat, 200), 
+      dynamicLayout: false,
+    );
+  }
 
   // ─────────────────────────────────────────────
   // Impressão silenciosa para impressora guardada
@@ -182,23 +225,24 @@ Future<void> imprimirSilencioso({
   String? telefoneCliente,
   PaperFormat paperFormat = PaperFormat.thermal80mm,
 }) async {
-  final pageFormat = _pageFormatFor(paperFormat);
-
-  // 1️⃣ Gera e salva primeiro (garante MediaBox correcto)
+  // 1️⃣ O cálculo da altura e a criação do PdfPageFormat agora 
+  // acontecem dentro do _buildPdfDocument para evitar erros de argumentos.
   final pdf = _buildPdfDocument(
     pedido: pedido,
     tipoPagamento: tipoPagamento,
-    pageFormat: pageFormat,
+    paperFormat: paperFormat, // Passamos o enum diretamente
     nomeCliente: nomeCliente,
     telefoneCliente: telefoneCliente,
   );
+
+  // 2️⃣ Salva e obtém os bytes com o MediaBox (altura) já ajustado
   final file = await _savePdf(pdf, pedido.id!);
   final bytes = await file.readAsBytes();
 
-  // 2️⃣ Envia directamente para a impressora com os bytes já correctos
+  // 3️⃣ Envia diretamente para a impressora
   await Printing.directPrintPdf(
     printer: impressora,
-    onLayout: (_) async => bytes,   // ← MediaBox 80mm preservado
+    onLayout: (_) async => bytes,
     name: _nomeAutomatico(pedido.id!),
     usePrinterSettings: false,
   );
@@ -636,39 +680,33 @@ String _nomeAutomatico(int pedidoId) {
 
   /// Impressão silenciosa via SumatraPDF — respeita MediaBox 80mm
 Future<void> imprimirViaSumatra({
-  required Pedido pedido,
-  required String tipoPagamento,
-  required String impressoraNome,
-  String? nomeCliente,
-  String? telefoneCliente,
-  PaperFormat paperFormat = PaperFormat.thermal80mm,
-}) async {
-  // Caminho relativo — funciona em Debug e Release
-  final sumatraPath =
-      '${Directory(Platform.resolvedExecutable).parent.path}\\SumatraPDF.exe';
+    required Pedido pedido,
+    required String tipoPagamento,
+    required String impressoraNome,
+    String? nomeCliente,
+    String? telefoneCliente,
+    PaperFormat paperFormat = PaperFormat.thermal80mm,
+  }) async {
+    final sumatraPath = '${Directory(Platform.resolvedExecutable).parent.path}\\SumatraPDF.exe';
 
-  final pageFormat = _pageFormatFor(paperFormat);
-  final pdf = _buildPdfDocument(
-    pedido: pedido,
-    tipoPagamento: tipoPagamento,
-    pageFormat: pageFormat,
-    nomeCliente: nomeCliente,
-    telefoneCliente: telefoneCliente,
-  );
-  final file = await _savePdf(pdf, pedido.id!);
+    final pdf = _buildPdfDocument(
+      pedido: pedido,
+      tipoPagamento: tipoPagamento,
+      paperFormat: paperFormat,
+      nomeCliente: nomeCliente,
+      telefoneCliente: telefoneCliente,
+    );
+    final file = await _savePdf(pdf, pedido.id!);
 
-  final result = await Process.run(sumatraPath, [
-    '-print-to', impressoraNome,
-    '-print-settings', 'fit',
-    '-silent',
-    file.path,
-  ]);
+    final result = await Process.run(sumatraPath, [
+      '-print-to', impressoraNome,
+      '-print-settings', 'fit',
+      '-silent',
+      file.path,
+    ]);
 
-
-
-
-  if (result.exitCode != 0) {
-    throw Exception('SumatraPDF erro (${result.exitCode}): ${result.stderr}');
+    if (result.exitCode != 0) {
+      throw Exception('SumatraPDF erro (${result.exitCode}): ${result.stderr}');
+    }
   }
-}
 }

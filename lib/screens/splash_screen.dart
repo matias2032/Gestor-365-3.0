@@ -322,13 +322,13 @@ if (!kIsWeb && defaultTargetPlatform != TargetPlatform.windows) {
                   const SizedBox(height: 60),
 
                   // 📝 Texto "Criado por Matias Matavel"
-                  // SlideTransition(
-                  //   position: _slideAnimation,
-                  //   child: FadeTransition(
-                  //     opacity: _fadeAnimation,
-                  //     child: _buildCredits(),
-                  //   ),
-                  // ),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: _buildCredits(),
+                    ),
+                  ),
 
                   const Spacer(),
 
@@ -401,28 +401,28 @@ child: Padding(
     );
   }
 
-  // Widget _buildCredits() {
-  //   return Container(
-  //     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-  //     decoration: BoxDecoration(
-  //       color: Colors.white.withOpacity(0.15),
-  //       borderRadius: BorderRadius.circular(20),
-  //       border: Border.all(
-  //         color: Colors.white.withOpacity(0.3),
-  //         width: 1,
-  //       ),
-  //     ),
-  //     child: const Text(
-  //       'Esse Gajo ',
-  //       style: TextStyle(
-  //         fontSize: 16,
-  //         color: Colors.white,
-  //         fontWeight: FontWeight.w500,
-  //         letterSpacing: 0.5,
-  //       ),
-  //     ),
-  //   );
-  // }
+  Widget _buildCredits() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: const Text(
+        'Criado por Matias Matavel',
+        style: TextStyle(
+          fontSize: 16,
+          color: Colors.white,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
 
   Widget _buildProgressSection() {
     return Column(

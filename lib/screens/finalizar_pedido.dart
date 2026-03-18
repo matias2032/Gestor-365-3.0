@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/supabase_sync_service.dart';
 import '../services/impressora_service.dart';
+import 'dart:io';
 
 class FinalizarPedidoScreen extends StatefulWidget {
   final int pedidoId;
@@ -322,7 +323,7 @@ Future<void> _gerarESalvarFatura() async {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('PDF guardado: ${pdfFile.path.split('/').last}'),
+          content: Text('PDF guardado: ${pdfFile.path.split(Platform.pathSeparator).last}'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 3),
         ),

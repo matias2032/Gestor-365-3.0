@@ -161,8 +161,8 @@ try {
   print('✅ Supabase já inicializado');
 } catch (_) {
   await Supabase.initialize(
-    url: 'https://nyxllwldebpqmusymhir.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55eGxsd2xkZWJwcW11c3ltaGlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MTY2MjMsImV4cCI6MjA4NTI5MjYyM30.irBuXAEM2CsJBdFu-V3qe_ymZU5I73DRjhkJFCgVZ28',
+    url: 'https://fploolupbkocitpnnzlh.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwbG9vbHVwYmtvY2l0cG5uemxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3NzM0NDcsImV4cCI6MjA4OTM0OTQ0N30.PAAY6JCLSx9q8oUgNQSxPN7a-KUueHaEMXoQ1z9gk1k',
   );
   print('✅ Supabase inicializado');
 }

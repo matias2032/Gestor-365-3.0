@@ -78,7 +78,7 @@ static PdfPageFormat _pageFormatFor(PaperFormat format, double alturaDinamica) {
 pw.Document _buildPdfDocument({
   required Pedido pedido,
   required String tipoPagamento,
-  required PaperFormat paperFormat, // Recebe o Enum agora
+  required PaperFormat paperFormat,
   String? nomeCliente,
   String? telefoneCliente,
 }) {
@@ -94,7 +94,13 @@ pw.Document _buildPdfDocument({
   // 2. Gera o formato correto com a altura calculada
   final pageFormat = _pageFormatFor(paperFormat, alturaDinamica);
 
-  final pdf = pw.Document();
+  // 🔥 ADICIONE OS METADADOS AQUI
+  final pdf = pw.Document(
+    title: _nomeAutomatico(pedido.id!), // Define o nome exacto para a fila de impressão
+    author: 'Bar Digital',
+    creator: 'Sistema de Gestão',
+  );
+
   final double margin = isSmall ? 10 : 40;
   final double baseFontSize = isSmall ? 9 : 12;
 

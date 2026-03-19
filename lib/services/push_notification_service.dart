@@ -86,8 +86,8 @@ _localNotifications = FlutterLocalNotificationsPlugin();
       iOS: iosSettings,
     );
 
-await _localNotifications!.initialize(   // ← adicionar !
-  settings,
+await _localNotifications!.initialize(
+  settings: settings, // Alterado de initializationSettings para settings
   onDidReceiveNotificationResponse: _onNotificationTap,
 );
   }
@@ -184,11 +184,11 @@ await _localNotifications!.initialize(   // ← adicionar !
       iOS: iosDetails,
     );
 
-await _localNotifications?.show(         // ← usar ?.
-  notification.hashCode,
-  notification.title,
-  notification.body,
-  details,
+await _localNotifications?.show(
+  id: notification.hashCode,         // ← Nomeado
+  title: notification.title,         // ← Nomeado
+  body: notification.body,           // ← Nomeado
+  notificationDetails: details,      // ← Nomeado
   payload: message.data['id_produto']?.toString(),
 );
   }

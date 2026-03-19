@@ -30,8 +30,8 @@ class NotificacaoEstoqueService {
       iOS: iosSettings,
     );
 
-    final resultado = await _notifications.initialize(
-      settings,
+   final resultado = await _notifications.initialize(
+      settings: settings, 
       onDidReceiveNotificationResponse: _onNotificationTap,
       onDidReceiveBackgroundNotificationResponse: _onNotificationTap,
     );
@@ -120,11 +120,11 @@ class NotificacaoEstoqueService {
     );
 
     try {
-      await _notifications.show(
-        1, // ID diferente do alerta de ruptura
-        titulo,
-        corpo,
-        details,
+    await _notifications.show(
+        id: 1, 
+        title: titulo,
+        body: corpo,
+        notificationDetails: details,
         payload: 'estoque_alerta',
       );
       print('✅ Resumo diário enviado');
@@ -176,11 +176,11 @@ class NotificacaoEstoqueService {
     );
 
     try {
-      await _notifications.show(
-        2, // ID único para rupturas
-        titulo,
-        corpo,
-        details,
+   await _notifications.show(
+        id: 2,
+        title: 'RUPTURA DE ESTOQUE!',
+        body: 'O produto "${produto.nome}" está zerado!',
+        notificationDetails: details,
         payload: 'estoque_alerta',
       );
       print('✅ Alerta de ruptura enviado: ${produto.nome}');
@@ -199,7 +199,7 @@ class NotificacaoEstoqueService {
 // 🔥 NOVO: Método para cancelar notificação específica
 Future<void> cancelarNotificacao(int id) async {
   try {
-    await _notifications.cancel(id);
+   await _notifications.cancel(id: id);
     print('✅ Notificação $id cancelada');
   } catch (e) {
     print('❌ Erro ao cancelar notificação $id: $e');
@@ -234,13 +234,13 @@ Future<void> mostrarNotificacaoSimples({
   );
 
   try {
-    await _notifications.show(
-      id,
-      titulo,
-      corpo,
-      NotificationDetails(android: androidDetails, iOS: iosDetails),
-      payload: payload,
-    );
+await _notifications.show(
+        id: id,
+        title: titulo,
+        body: corpo,
+        notificationDetails: NotificationDetails(android: androidDetails, iOS: const DarwinNotificationDetails()),
+        payload: payload,
+      );
     print('✅ Notificação de validade enviada: $titulo');
   } catch (e) {
     print('❌ Erro ao enviar notificação de validade: $e');
@@ -294,15 +294,19 @@ Future<void> agendarNotificacao({
     );
 
     // 🔥 CORREÇÃO: Remover parâmetros obsoletos
-    await _notifications.zonedSchedule(
-      id,
-      titulo,
-      corpo,
-      scheduledDate,
-      details,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time, // Repetir diariamente
-    );
+await _notifications.zonedSchedule(
+  id: id,
+  title: titulo,
+  body: corpo,
+  scheduledDate: scheduledDate,
+  notificationDetails: NotificationDetails(
+    android: androidDetails, 
+    iOS: const DarwinNotificationDetails()
+  ),
+  androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+  matchDateTimeComponents: DateTimeComponents.time,
+  payload: 'estoque_alerta',
+);
 
     print('✅ Notificação #$id agendada com sucesso');
   } catch (e) {

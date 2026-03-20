@@ -15,6 +15,7 @@ import '../services/push_notification_service.dart';
 import '../services/conectividade_service.dart';
 import '../widgets/conectividade_dialog.dart';
 import '../services/validade_alerta_service.dart';
+import '../services/licenca_service.dart';
 import 'package:flutter/foundation.dart'; 
 
 // Telas
@@ -235,23 +236,31 @@ if (!kIsWeb && defaultTargetPlatform != TargetPlatform.windows) {
   await Future.delayed(const Duration(milliseconds: 300));
 }
 
-  // 9️⃣ Verificar Sessão COM VALIDAÇÃO
-  await _updateProgress(0.95, 'Verificando sessão...');
-  await SessaoService.instance.inicializarSessao();
+ // 9️⃣ Verificar Sessão
+await _updateProgress(0.95, 'Verificando sessão...');
+await SessaoService.instance.inicializarSessao();
+
+bool sessaoValida = SessaoService.instance.isLogado;
+
+if (sessaoValida) {
+  // 🛡️ NOVO: Lógica de Licença
+  if (isOnline) {
+    await LicencaService.instance.atualizarLicencaServidor();
+  }
+
+  final status = await LicencaService.instance.verificarStatusLicenca();
   
-  bool sessaoValida = false;
-  if (SessaoService.instance.isLogado) {
-    sessaoValida = await SessaoService.instance.validarSessao();
-    if (!sessaoValida) {
-      print('⚠️ Sessão inválida detectada - requer novo login');
+  if (status != StatusLicenca.valida) {
+    if (mounted) {
+      // Redireciona para tela de bloqueio com o motivo
+      Navigator.of(context).pushReplacementNamed('/bloqueio', arguments: status);
+      return;
     }
   }
-  
-  await Future.delayed(const Duration(milliseconds: 300));
+}
 
-  // 🔟 Finalizar (100%)
-  await _updateProgress(1.0, sessaoValida ? 'Bem-vindo de volta! 🎉' : 'Pronto! 🎉');
-  await Future.delayed(const Duration(milliseconds: 800));
+// 🔟 Finalizar
+await _updateProgress(1.0, 'Pronto! 🎉');  await Future.delayed(const Duration(milliseconds: 800));
 
   // 🚀 Navegar
   if (mounted) {
@@ -390,7 +399,7 @@ child: Padding(
         const SizedBox(height: 8),
         
         Text(
-          'Gestão total, todos os dias',
+          'Gestão total todos os dias',
           style: TextStyle(
             fontSize: 16,
             color: Colors.white.withOpacity(0.9),

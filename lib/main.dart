@@ -8,6 +8,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 import 'services/push_notification_service.dart';
+import 'services/licenca_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart'; 
 
 // Tema
@@ -39,6 +40,7 @@ import 'screens/primeira_troca_senha.dart';
 import 'screens/corrigir_imagens_screen.dart';
 import 'services/conectividade_service.dart';
 import 'screens/configuracoes_impressora_screen.dart';
+import 'screens/bloqueio_screen.dart';
 import 'widgets/conectividade_dialog.dart';
 import 'services/supabase_sync_service.dart';
 import 'package:flutter/foundation.dart'; 
@@ -493,6 +495,12 @@ class _MyAppState extends State<MyApp> {
                 return MaterialPageRoute(
                   builder: (_) => const MovimentosEstoqueScreen(),
                 );
+
+                case '/bloqueio':
+               final status = settings.arguments as StatusLicenca? ?? StatusLicenca.expirada;
+              return MaterialPageRoute(
+              builder: (_) => BloqueioScreen(motivo: status),
+              );
 
               default:
                 return MaterialPageRoute(
